@@ -1,7 +1,7 @@
 # LaTeX Project Parsing and Compiler-Style Diagnostics Design
 
-**Date:** 2026-08-31  
-**Status:** Approved  
+**Date:** 2026-08-31
+**Status:** Approved
 **Scope:** Tree-sitter-based recursive LaTeX loading, logical-text source mapping, Chinese-aware `STYLE001`, and Ariadne human diagnostics
 
 ## Problem
