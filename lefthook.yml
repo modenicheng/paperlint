@@ -21,11 +21,11 @@ commit-msg:
     - name: conventional-commit
       run: sh scripts/commit-msg.sh {1}
 
-pre-push:
-  parallel: true
-  jobs:
-    - name: clippy
-      run: cargo clippy --all-targets --all-features -- -D warnings
+# pre-push:
+#   parallel: true
+#   jobs:
+#     - name: clippy
+#       run: cargo clippy --all-targets --all-features -- -D warnings
 
-    - name: test
-      run: cargo test --all-targets --all-features
+#     - name: test
+#       run: cargo test --all-targets --all-features

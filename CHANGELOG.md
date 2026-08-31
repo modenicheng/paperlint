@@ -8,15 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+
 - `rust-toolchain.toml` (stable channel + rustfmt/clippy) — Rust 2024 edition requires 1.85+; contributors no longer hit mysterious toolchain errors
 - Git hooks via lefthook: `pre-commit` (fmt + check), `commit-msg` (Conventional Commits validation via `scripts/commit-msg.sh`), `pre-push` (clippy -D warnings + tests)
 
 ### Changed
+
 - CI: dropped redundant `cargo build` (clippy/test already compile), added `--all-targets --all-features` to clippy/test, replaced three `actions/cache@v3` steps with `Swatinem/rust-cache@v2`, bumped `actions/checkout` to v4
 - Docs consolidated: rule reference moved to `docs/rules.md`; removed WIKI/QUICKSTART/PROJECT_SUMMARY/COMPLETE_SUMMARY/IMPLEMENTATION_STATUS (overlapping content that would drift)
 - CONTRIBUTING: Rust 1.85+ requirement, lefthook setup and workflow, commit types aligned with the validator (added `perf`, `build`, `ci`, `revert`)
 
 ### Previously (initial commit)
+
 - Chinese NLP infrastructure with jieba-rs integration
 - Text processing layer (language detection, sentence segmentation, character statistics)
 - Terminology extraction supporting multiple Chinese academic paper formats
@@ -26,14 +29,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Comprehensive documentation (WIKI.md, CONTRIBUTING.md, README.md)
 
 ### In Progress
+
 - FUNC001: Function word density checking
 - FUNC002: Repeated function word class detection
 - STYLE002: Weak verb overuse detection
 - SYN001-SYN005: Chinese syntax pattern rules
 
-## [0.1.0] - 2024-12-XX
+## [0.1.0] - 2026-08-31
 
 ### Added
+
 - Initial release of Paperlint
 - Core linting engine with configurable rules
 - LaTeX project resolution with multi-file support (`\input`, `\include`)
@@ -48,6 +53,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Boolean shorthand for rule configuration (`rule = false`)
 
 ### NLP Infrastructure
+
 - Language detection (Chinese/English/Mixed)
 - Sentence segmentation for Chinese and English
 - Character-based statistics for Chinese text
@@ -62,12 +68,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Token-to-source position mapping
 
 ### Architecture
+
 - Pluggable NLP backend system
 - Capability-based rule system
 - Clean separation: LaTeX parsing → Text analysis → NLP analysis → Rules
 - Trait-based extensibility for analyzers
 
 ### Documentation
+
 - Comprehensive user guide (WIKI.md)
 - Contributing guidelines (CONTRIBUTING.md)
 - Implementation status documentation
@@ -75,6 +83,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - MIT License
 
 ### Technical Details
+
 - Written in Rust
 - Uses tree-sitter-latex for parsing
 - Uses jieba-rs for Chinese NLP
@@ -82,6 +91,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Zero warnings build
 
 ### Configuration
+
 - Default configurations for all rules
 - Configurable severity levels
 - Customizable word lists for terminology rules
@@ -89,6 +99,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Language-specific thresholds (character/word counts)
 
 ### Known Limitations
+
 - Sentence segmentation may have false positives with abbreviations/decimals
 - English acronym extraction may capture extra words (v0.1 heuristic)
 - No syntax analysis yet (dependency parsing planned for future)
@@ -97,6 +108,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Development Milestones
 
 ### Phase 1: Foundation ✅ (v0.1)
+
 - [x] Project structure
 - [x] LaTeX parsing with tree-sitter
 - [x] Multi-file project resolution
@@ -106,6 +118,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [x] CLI with text/JSON output
 
 ### Phase 2: NLP Infrastructure ✅ (v0.1)
+
 - [x] Language detection
 - [x] Sentence segmentation
 - [x] Character/word statistics
@@ -116,18 +129,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [x] Token position mapping
 
 ### Phase 3: Core Rules ✅ (v0.1)
+
 - [x] ACR001: Acronym definition
 - [x] ACR002: Unnecessary acronym
 - [x] TERM001: Terminology consistency
 - [x] STYLE001: Long sentences
 
 ### Phase 4: Chinese Style Rules 🚧 (Next)
+
 - [ ] FUNC001: Function word density
 - [ ] FUNC002: Repeated function words
 - [ ] STYLE002: Weak verb overuse
 - [ ] TERM002: Term definition required
 
 ### Phase 5: Chinese Syntax Rules 🚧 (Future)
+
 - [ ] SYN001: Ba-construction density
 - [ ] SYN002: Passive voice density
 - [ ] SYN003: Prepositional phrase stacking
@@ -135,18 +151,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [ ] SYN005: Long modifier chains
 
 ### Phase 6: Advanced NLP 📋 (Future)
+
 - [ ] Syntax analyzer interface implementation
 - [ ] LTP backend integration
 - [ ] Dependency parsing
 - [ ] Advanced syntax rules
 
 ### Phase 7: Tooling 📋 (Future)
+
 - [ ] LSP server for editor integration
 - [ ] CI/CD integration examples
 - [ ] Pre-commit hooks
 - [ ] GitHub Actions workflow
 
 ### Phase 8: Extensibility 📋 (Future)
+
 - [ ] Plugin system for custom rules
 - [ ] Custom analyzer backends
 - [ ] Rule marketplace/registry
@@ -168,11 +187,12 @@ See [CONTRIBUTORS.md](./CONTRIBUTORS.md) for the full list.
 
 ## Feedback and Issues
 
-Report issues at: https://github.com/modenicheng/paperlint/issues
+Report issues at: <https://github.com/modenicheng/paperlint/issues>
 
 ---
 
 **Legend:**
+
 - ✅ Completed
 - 🚧 In Progress
 - 📋 Planned
