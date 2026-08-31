@@ -30,11 +30,11 @@ impl LexicalAnalyzer for JiebaAnalyzer {
         for word in self.jieba.tag(text, false) {
             let word_text = word.word;
             let word_len = word_text.len();
-            
+
             // Find the position in original text
             if let Some(pos) = text[current_pos..].find(word_text) {
                 let absolute_pos = current_pos + pos;
-                
+
                 tokens.push(Token {
                     text: word_text.to_string(),
                     pos: map_jieba_pos(word.tag),
@@ -46,7 +46,7 @@ impl LexicalAnalyzer for JiebaAnalyzer {
                         column: base_span.column,
                     },
                 });
-                
+
                 current_pos = absolute_pos + word_len;
             }
         }
@@ -60,41 +60,41 @@ impl LexicalAnalyzer for JiebaAnalyzer {
 }
 
 /// Map jieba POS tags to our PosTag enum
-/// 
+///
 /// Jieba uses tags like: n (noun), v (verb), a (adj), etc.
 /// Reference: https://github.com/fxsjy/jieba#%E8%AF%8D%E6%80%A7%E6%A0%87%E6%B3%A8
 fn map_jieba_pos(tag: &str) -> PosTag {
     match tag {
         // Nouns
         "n" | "nr" | "ns" | "nt" | "nz" | "ng" => PosTag::Noun,
-        
+
         // Verbs
         "v" | "vd" | "vn" | "vg" => PosTag::Verb,
-        
+
         // Adjectives
         "a" | "ad" | "an" | "ag" => PosTag::Adjective,
-        
+
         // Adverbs
         "d" => PosTag::Adverb,
-        
+
         // Prepositions
         "p" => PosTag::Preposition,
-        
+
         // Conjunctions
         "c" => PosTag::Conjunction,
-        
+
         // Pronouns
         "r" => PosTag::Pronoun,
-        
+
         // Particles (助词)
         "u" | "uz" | "ug" | "ul" | "uv" => PosTag::Particle,
-        
+
         // Numerals
         "m" | "mq" => PosTag::Numeral,
-        
+
         // Punctuation
         "x" | "w" => PosTag::Punctuation,
-        
+
         // Others
         _ => PosTag::Other,
     }
@@ -120,7 +120,7 @@ mod tests {
         let analyzer = JiebaAnalyzer::new();
         let span = make_span();
         let analysis = analyzer.analyze("我们使用大语言模型", &span);
-        
+
         assert!(!analysis.tokens.is_empty());
         assert_eq!(analysis.text, "我们使用大语言模型");
     }
@@ -130,7 +130,7 @@ mod tests {
         let analyzer = JiebaAnalyzer::new();
         let span = make_span();
         let analysis = analyzer.analyze("使用 LLM 进行推理", &span);
-        
+
         assert!(!analysis.tokens.is_empty());
     }
 }

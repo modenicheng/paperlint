@@ -8,7 +8,7 @@ pub struct Sentence {
 }
 
 /// Segment text into sentences
-/// 
+///
 /// Handles both Chinese and English sentence boundaries:
 /// - Chinese: 。！？；
 /// - English: . ! ? ;
@@ -18,14 +18,13 @@ pub struct Sentence {
 pub fn segment_sentences(text: &str, base_span: &Span) -> Vec<Sentence> {
     let mut sentences = Vec::new();
     let mut current_start = 0;
-    let mut chars_iter = text.char_indices().peekable();
 
-    while let Some((pos, ch)) = chars_iter.next() {
+    for (pos, ch) in text.char_indices() {
         if is_sentence_boundary(ch) {
             // Include the boundary character in the sentence
             let end_pos = pos + ch.len_utf8();
             let sentence_text = text[current_start..end_pos].trim();
-            
+
             if !sentence_text.is_empty() {
                 sentences.push(Sentence {
                     text: sentence_text.to_string(),
@@ -38,7 +37,7 @@ pub fn segment_sentences(text: &str, base_span: &Span) -> Vec<Sentence> {
                     },
                 });
             }
-            
+
             current_start = end_pos;
         }
     }
@@ -88,7 +87,7 @@ mod tests {
         let text = "这是第一句。这是第二句。";
         let span = make_span();
         let sentences = segment_sentences(text, &span);
-        
+
         assert_eq!(sentences.len(), 2);
         assert_eq!(sentences[0].text, "这是第一句。");
         assert_eq!(sentences[1].text, "这是第二句。");
@@ -99,7 +98,7 @@ mod tests {
         let text = "This is first. This is second.";
         let span = make_span();
         let sentences = segment_sentences(text, &span);
-        
+
         assert_eq!(sentences.len(), 2);
         assert_eq!(sentences[0].text, "This is first.");
         assert_eq!(sentences[1].text, "This is second.");
@@ -110,7 +109,7 @@ mod tests {
         let text = "中文句子。English sentence. 混合！";
         let span = make_span();
         let sentences = segment_sentences(text, &span);
-        
+
         assert_eq!(sentences.len(), 3);
         assert_eq!(sentences[0].text, "中文句子。");
         assert_eq!(sentences[1].text, "English sentence.");

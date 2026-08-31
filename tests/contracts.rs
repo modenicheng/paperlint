@@ -8,8 +8,8 @@ fn stable_rule_ids_when_iterated_then_match_public_api() {
     assert_eq!(
         ids,
         [
-            "ACR001", "ACR002", "TERM001", "STYLE001", "FUNC001", "FUNC002", "STYLE002",
-            "SYN001", "SYN002", "SYN003", "SYN004", "SYN005"
+            "ACR001", "ACR002", "TERM001", "STYLE001", "FUNC001", "FUNC002", "STYLE002", "SYN001",
+            "SYN002", "SYN003", "SYN004", "SYN005"
         ]
     );
 }

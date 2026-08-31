@@ -59,21 +59,12 @@ mod tests {
     #[test]
     fn test_detect_english() {
         assert_eq!(detect_language("This is English text"), Language::English);
-        assert_eq!(
-            detect_language("Large Language Model"),
-            Language::English
-        );
+        assert_eq!(detect_language("Large Language Model"), Language::English);
     }
 
     #[test]
     fn test_detect_mixed() {
-        assert_eq!(
-            detect_language("使用 LLM 进行推理"),
-            Language::Chinese
-        );
-        assert_eq!(
-            detect_language("LLM 大语言模型"),
-            Language::Chinese
-        );
+        assert_eq!(detect_language("使用 LLM 进行推理"), Language::Chinese);
+        assert_eq!(detect_language("LLM 大语言模型"), Language::Chinese);
     }
 }

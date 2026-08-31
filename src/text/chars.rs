@@ -72,12 +72,31 @@ fn is_cjk(ch: char) -> bool {
 }
 
 fn is_punctuation(ch: char) -> bool {
-    matches!(ch,
-        '.' | ',' | '!' | '?' | ';' | ':' | 
-        '。' | '，' | '！' | '？' | '；' | '：' |
-        '(' | ')' | '（' | '）' | '[' | ']' | 
-        '{' | '}' | '"' | '\'' |
-        '\u{2018}' | '\u{2019}' // Left and right single quotation marks
+    matches!(
+        ch,
+        '.' | ','
+            | '!'
+            | '?'
+            | ';'
+            | ':'
+            | '。'
+            | '，'
+            | '！'
+            | '？'
+            | '；'
+            | '：'
+            | '('
+            | ')'
+            | '（'
+            | '）'
+            | '['
+            | ']'
+            | '{'
+            | '}'
+            | '"'
+            | '\''
+            | '\u{2018}'
+            | '\u{2019}' // Left and right single quotation marks
     )
 }
 

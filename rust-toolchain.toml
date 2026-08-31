@@ -1,0 +1,8 @@
+# Toolchain for paperlint.
+#
+# Rust 2024 edition requires Rust 1.85 or later.
+# We track `stable` instead of pinning a specific version while the
+# project is in rapid development.
+[toolchain]
+channel = "stable"
+components = ["rustfmt", "clippy"]

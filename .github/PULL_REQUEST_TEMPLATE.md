@@ -38,7 +38,7 @@ Fixes #(issue)
 - [ ] I have updated the documentation accordingly
 - [ ] I have updated CHANGELOG.md
 - [ ] I have added myself to CONTRIBUTORS.md (if this is my first contribution)
-- [ ] For new rules: I have updated WIKI.md with rule documentation
+- [ ] For new rules: I have updated docs/rules.md with rule documentation
 
 ## Additional Notes
 <!-- Any additional information that reviewers should know -->

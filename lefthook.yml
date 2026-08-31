@@ -1,0 +1,31 @@
+# Lefthook configuration for paperlint.
+#
+# Design:
+#   - pre-commit keeps commits fast (formatting + cargo check).
+#   - the heavier clippy/test gates run on pre-push.
+#   - commit-msg enforces Conventional Commits.
+#
+# Install: see CONTRIBUTING.md ("Git hooks (lefthook)").
+
+pre-commit:
+  parallel: true
+  jobs:
+    - name: fmt
+      run: cargo fmt --all -- --check
+
+    - name: check
+      run: cargo check --all-targets --all-features
+
+commit-msg:
+  jobs:
+    - name: conventional-commit
+      run: sh scripts/commit-msg.sh {1}
+
+pre-push:
+  parallel: true
+  jobs:
+    - name: clippy
+      run: cargo clippy --all-targets --all-features -- -D warnings
+
+    - name: test
+      run: cargo test --all-targets --all-features

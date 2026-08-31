@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `rust-toolchain.toml` (stable channel + rustfmt/clippy) — Rust 2024 edition requires 1.85+; contributors no longer hit mysterious toolchain errors
+- Git hooks via lefthook: `pre-commit` (fmt + check), `commit-msg` (Conventional Commits validation via `scripts/commit-msg.sh`), `pre-push` (clippy -D warnings + tests)
+
+### Changed
+- CI: dropped redundant `cargo build` (clippy/test already compile), added `--all-targets --all-features` to clippy/test, replaced three `actions/cache@v3` steps with `Swatinem/rust-cache@v2`, bumped `actions/checkout` to v4
+- Docs consolidated: rule reference moved to `docs/rules.md`; removed WIKI/QUICKSTART/PROJECT_SUMMARY/COMPLETE_SUMMARY/IMPLEMENTATION_STATUS (overlapping content that would drift)
+- CONTRIBUTING: Rust 1.85+ requirement, lefthook setup and workflow, commit types aligned with the validator (added `perf`, `build`, `ci`, `revert`)
+
+### Previously (initial commit)
 - Chinese NLP infrastructure with jieba-rs integration
 - Text processing layer (language detection, sentence segmentation, character statistics)
 - Terminology extraction supporting multiple Chinese academic paper formats
