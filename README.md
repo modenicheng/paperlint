@@ -27,7 +27,7 @@ paperlint main.tex --format human --color never
 
 Output formats are `human` (default) and `json`; the legacy `text` value remains an alias for `human`. Human output supports `--color auto|always|never`. Exit codes are severity-based: `0` means no error-level diagnostics (warnings may be present), `1` means at least one lint error, and `2` means a CLI, configuration, project, parse, render, or output failure.
 
-Paperlint recursively loads `\input`, `\include`, `\subfile`, and `\subfileinclude` in reading order. The `\import` command family (`\import`, `\subimport`, `\inputfrom`, and `\includefrom`) is not supported.
+Paperlint recursively loads `\input`, `\include`, `\subfile`, and `\subfileinclude` in reading order. The `\import` command family (`\import`, `\subimport`, `\inputfrom`, and `\includefrom`) is not supported. BibTeX/reference metadata—including citation keys, bibliography commands, and `thebibliography` entries—is excluded from linting.
 
 ### Example Output
 
@@ -52,7 +52,12 @@ syntax = "none"
 
 [rules.ACR001]
 level = "error"
+min_length = 2
 ignore = ["AI", "CPU", "GPU", "API"]
+
+[rules.ACR002]
+level = "warning"
+min_usages_after_definition = 1
 
 [rules.TERM001]
 level = "warning"
@@ -113,7 +118,7 @@ paperlint main.tex --format human --color never
 
 输出格式为 `human`（默认）或 `json`；旧的 `text` 值仍作为 `human` 的兼容别名。人类可读输出支持 `--color auto|always|never`。退出码按诊断级别确定：`0` 表示没有 error 级诊断（可以有 warning），`1` 表示至少一个 lint error，`2` 表示 CLI、配置、工程、解析、渲染或输出失败。
 
-Paperlint 按阅读顺序递归加载 `\input`、`\include`、`\subfile` 和 `\subfileinclude`。暂不支持 `\import` 命令族（`\import`、`\subimport`、`\inputfrom`、`\includefrom`）。
+Paperlint 按阅读顺序递归加载 `\input`、`\include`、`\subfile` 和 `\subfileinclude`。暂不支持 `\import` 命令族（`\import`、`\subimport`、`\inputfrom`、`\includefrom`）。BibTeX/参考文献元数据（包括引用键、书目命令和 `thebibliography` 条目）不属于论文正文，不参与检查。
 
 ### 输出示例
 
@@ -138,7 +143,12 @@ syntax = "none"
 
 [rules.ACR001]
 level = "error"
+min_length = 2
 ignore = ["AI", "CPU", "GPU", "API"]
+
+[rules.ACR002]
+level = "warning"
+min_usages_after_definition = 1
 
 [rules.TERM001]
 level = "warning"

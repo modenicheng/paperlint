@@ -270,12 +270,14 @@ impl Loader<'_> {
         }
         if kind == "generic_environment" {
             let environment = environment_name(node, source);
-            if environment.as_ref().is_some_and(|name| {
-                self.config
-                    .ignore_environments
-                    .iter()
-                    .any(|item| item == name)
-            }) {
+            if environment.as_deref().is_some_and(is_non_prose_environment)
+                || environment.as_ref().is_some_and(|name| {
+                    self.config
+                        .ignore_environments
+                        .iter()
+                        .any(|item| item == name)
+                })
+            {
                 return Ok(());
             }
         }
@@ -284,6 +286,9 @@ impl Loader<'_> {
         }
         if kind == "caption" {
             return self.walk_isolated_field(node, "long", source, path, builder);
+        }
+        if kind == "text" {
+            return self.walk_text_node(node, source, path, builder);
         }
         if kind == "enum_item" {
             return self.walk_enum_item(node, source, path, builder);
@@ -314,17 +319,61 @@ impl Loader<'_> {
                 builder.push_whitespace(source, end..child.start_byte(), &mut self.blocks);
             }
             self.walk(child, source, path, builder)?;
-            previous_end = Some(child.end_byte());
-            index += if ends_with_old_command_definition(child)
+
+            let mut next_index = index + 1;
+            if contains_standalone_bibitem(child, source) {
+                builder.flush(&mut self.blocks);
+                index = next_structural_sibling(&children, next_index);
+                previous_end = None;
+                continue;
+            }
+            let mut consumed_end = child.end_byte();
+            if ends_with_old_command_definition(child)
                 && children
-                    .get(index + 1)
+                    .get(next_index)
                     .is_some_and(|next| next.kind() == "curly_group")
             {
-                previous_end = Some(children[index + 1].end_byte());
-                2
-            } else {
-                1
-            };
+                consumed_end = children[next_index].end_byte();
+                next_index += 1;
+            }
+            if let Some(end) = trailing_non_prose_command_end(child, source) {
+                consumed_end = consumed_end.max(end);
+                while children
+                    .get(next_index)
+                    .is_some_and(|next| next.start_byte() < consumed_end)
+                {
+                    next_index += 1;
+                }
+            }
+            previous_end = Some(consumed_end);
+            index = next_index;
+        }
+        Ok(())
+    }
+
+    fn walk_text_node(
+        &mut self,
+        node: Node<'_>,
+        source: &[u8],
+        path: &Path,
+        builder: &mut BlockBuilder,
+    ) -> Result<(), ParseError> {
+        let mut cursor = node.walk();
+        let children: Vec<_> = node.children(&mut cursor).collect();
+        let mut previous_end = None;
+        let mut index = 0;
+        while index < children.len() {
+            let child = children[index];
+            if let Some(end) = previous_end {
+                builder.push_whitespace(source, end..child.start_byte(), &mut self.blocks);
+            }
+            if is_command(child, source, "bibitem") {
+                builder.flush(&mut self.blocks);
+                return Ok(());
+            }
+            self.walk(child, source, path, builder)?;
+            previous_end = Some(child.end_byte());
+            index += 1;
         }
         Ok(())
     }
@@ -338,16 +387,29 @@ impl Loader<'_> {
     ) -> Result<(), ParseError> {
         let label = node.child_by_field_name("label");
         let mut cursor = node.walk();
+        let children: Vec<_> = node.named_children(&mut cursor).collect();
         let mut previous_end = label.map(|field| field.end_byte());
-        for child in node.named_children(&mut cursor) {
+        let mut index = 0;
+        while index < children.len() {
+            let child = children[index];
             if label.is_some_and(|field| field.id() == child.id()) {
+                index += 1;
                 continue;
             }
             if let Some(end) = previous_end {
                 builder.push_whitespace(source, end..child.start_byte(), &mut self.blocks);
             }
             self.walk(child, source, path, builder)?;
-            previous_end = Some(child.end_byte());
+            let consumed_end =
+                trailing_non_prose_command_end(child, source).unwrap_or_else(|| child.end_byte());
+            index += 1;
+            while children
+                .get(index)
+                .is_some_and(|next| next.start_byte() < consumed_end)
+            {
+                index += 1;
+            }
+            previous_end = Some(consumed_end);
         }
         Ok(())
     }
@@ -380,21 +442,39 @@ impl Loader<'_> {
             builder.flush(&mut self.blocks);
         }
 
+        let toc = node.child_by_field_name("toc");
         let mut cursor = node.walk();
+        let children: Vec<_> = node.named_children(&mut cursor).collect();
         let mut previous_end = prose.map(|field| field.end_byte());
-        for child in node.named_children(&mut cursor) {
+        let mut index = 0;
+        while index < children.len() {
+            let child = children[index];
             if prose.is_some_and(|field| field.id() == child.id())
-                || node
-                    .child_by_field_name("toc")
-                    .is_some_and(|field| field.id() == child.id())
+                || toc.is_some_and(|field| field.id() == child.id())
             {
+                index += 1;
                 continue;
             }
             if let Some(end) = previous_end {
                 builder.push_whitespace(source, end..child.start_byte(), &mut self.blocks);
             }
             self.walk(child, source, path, builder)?;
-            previous_end = Some(child.end_byte());
+            if contains_standalone_bibitem(child, source) {
+                builder.flush(&mut self.blocks);
+                index = next_structural_sibling(&children, index + 1);
+                previous_end = None;
+                continue;
+            }
+            let consumed_end =
+                trailing_non_prose_command_end(child, source).unwrap_or_else(|| child.end_byte());
+            index += 1;
+            while children
+                .get(index)
+                .is_some_and(|next| next.start_byte() < consumed_end)
+            {
+                index += 1;
+            }
+            previous_end = Some(consumed_end);
         }
         Ok(())
     }
@@ -436,6 +516,85 @@ impl Loader<'_> {
             self.walk(child, source, path, builder)?;
         }
         Ok(())
+    }
+}
+
+fn is_command(node: Node<'_>, source: &[u8], expected: &str) -> bool {
+    node.kind() == "generic_command"
+        && node
+            .named_child(0)
+            .is_some_and(|child| node_text(child, source).trim_start_matches('\\') == expected)
+}
+
+fn contains_standalone_bibitem(node: Node<'_>, source: &[u8]) -> bool {
+    if is_command(node, source, "bibitem") {
+        return true;
+    }
+    if should_skip_subtree(node.kind())
+        || (node.kind() == "generic_environment"
+            && environment_name(node, source)
+                .as_deref()
+                .is_some_and(is_non_prose_environment))
+    {
+        return false;
+    }
+    let mut cursor = node.walk();
+    node.named_children(&mut cursor)
+        .any(|child| contains_standalone_bibitem(child, source))
+}
+
+fn next_structural_sibling(children: &[Node<'_>], mut index: usize) -> usize {
+    while children
+        .get(index)
+        .is_some_and(|child| !is_structural_prose_node(child.kind()))
+    {
+        index += 1;
+    }
+    index
+}
+
+fn trailing_non_prose_command_end(node: Node<'_>, source: &[u8]) -> Option<usize> {
+    if node.kind() == "generic_command" {
+        let command = node.named_child(0).map(|child| {
+            node_text(child, source)
+                .trim_start_matches('\\')
+                .to_string()
+        })?;
+        return (command == "printbibliography")
+            .then(|| consume_optional_bracket_groups(source, node.end_byte()));
+    }
+    let child = node.named_child(node.named_child_count().checked_sub(1)?)?;
+    trailing_non_prose_command_end(child, source)
+}
+
+fn consume_optional_bracket_groups(source: &[u8], mut index: usize) -> usize {
+    loop {
+        while source.get(index).is_some_and(u8::is_ascii_whitespace) {
+            index += 1;
+        }
+        if source.get(index) != Some(&b'[') {
+            return index;
+        }
+
+        let mut depth = 0usize;
+        let mut escaped = false;
+        while let Some(&byte) = source.get(index) {
+            index += 1;
+            if escaped {
+                escaped = false;
+                continue;
+            }
+            if byte == b'\\' {
+                escaped = true;
+            } else if byte == b'[' {
+                depth += 1;
+            } else if byte == b']' {
+                depth -= 1;
+                if depth == 0 {
+                    break;
+                }
+            }
+        }
     }
 }
 
@@ -534,6 +693,10 @@ fn should_skip_subtree(kind: &str) -> bool {
     )
 }
 
+fn is_non_prose_environment(environment: &str) -> bool {
+    matches!(environment, "thebibliography")
+}
+
 fn is_structural_prose_node(kind: &str) -> bool {
     matches!(
         kind,
@@ -553,6 +716,8 @@ fn is_non_prose_command(command: &str) -> bool {
         "cite"
             | "citep"
             | "citet"
+            | "printbibliography"
+            | "bibitem"
             | "label"
             | "ref"
             | "pageref"
@@ -573,7 +738,21 @@ fn is_non_prose_command(command: &str) -> bool {
 fn is_retained_punctuation(kind: &str) -> bool {
     matches!(
         kind,
-        "." | "," | "!" | "?" | ";" | ":" | "。" | "，" | "！" | "？" | "；" | "："
+        "." | ","
+            | "!"
+            | "?"
+            | ";"
+            | ":"
+            | "("
+            | ")"
+            | "。"
+            | "，"
+            | "！"
+            | "？"
+            | "；"
+            | "："
+            | "（"
+            | "）"
     )
 }
 

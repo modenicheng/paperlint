@@ -4,10 +4,14 @@ use crate::{
     lint::diagnostic::Diagnostic,
     rule_id::RuleId,
     text::chars::effective_length,
-    text::{Language, detect_language, segment_sentences},
+    text::{
+        Language, detect_language, segment_sentences,
+        terminology::{
+            AcronymDefinition, AcronymUsage, extract_acronym_definitions, find_acronym_usages,
+        },
+    },
 };
-use regex::Regex;
-use std::collections::HashMap;
+use std::{collections::HashMap, ops::Range};
 
 pub trait Rule {
     fn id(&self) -> RuleId;
@@ -29,27 +33,40 @@ impl Rule for Acr001 {
         if !rule.level.is_enabled() {
             return Vec::new();
         }
-        let acronym = match Regex::new(r"(?-u:\b)[A-Z]{2,}(?-u:\b)") {
-            Ok(regex) => regex,
-            Err(_) => return Vec::new(),
-        };
-        document
-            .blocks
+        let analysis = analyze_acronyms(document);
+        let first_definitions: HashMap<&str, ReadingPosition> = analysis
+            .definitions
             .iter()
-            .flat_map(|block| {
-                acronym.find_iter(&block.text).filter_map(|matched| {
-                    if matched.as_str().len() < rule.min_length
-                        || rule.ignore.iter().any(|value| value == matched.as_str())
-                    {
-                        return None;
-                    }
-                    let span = document.source_span(block, matched.range())?;
-                    Some(Diagnostic {
-                        rule: self.id(),
-                        severity: rule.level,
-                        message: format!("acronym `{}` used before definition", matched.as_str()),
-                        span,
-                    })
+            .map(|definition| (definition.acronym.as_str(), definition.position()))
+            .fold(HashMap::new(), |mut first, (acronym, position)| {
+                first
+                    .entry(acronym)
+                    .and_modify(|existing| *existing = (*existing).min(position))
+                    .or_insert(position);
+                first
+            });
+
+        analysis
+            .usages
+            .iter()
+            .filter(|usage| !usage.is_definition)
+            .filter(|usage| {
+                usage.acronym.len() >= rule.min_length
+                    && !rule.ignore.iter().any(|value| value == &usage.acronym)
+            })
+            .filter(|usage| {
+                first_definitions
+                    .get(usage.acronym.as_str())
+                    .is_none_or(|definition| usage.position() < *definition)
+            })
+            .filter_map(|usage| {
+                let block = &document.blocks[usage.block];
+                let span = document.source_span(block, usage.range.clone())?;
+                Some(Diagnostic {
+                    rule: self.id(),
+                    severity: rule.level,
+                    message: format!("acronym `{}` used before definition", usage.acronym),
+                    span,
                 })
             })
             .collect()
@@ -66,45 +83,139 @@ impl Rule for Acr002 {
         if !rule.level.is_enabled() {
             return Vec::new();
         }
-        let acronym = match Regex::new(r"(?-u:\b)([A-Z]{2,})(?-u:\b)") {
-            Ok(regex) => regex,
-            Err(_) => return Vec::new(),
-        };
-        let mut occurrences = HashMap::new();
-        for block in &document.blocks {
-            for capture in acronym.captures_iter(&block.text) {
-                let Some(matched) = capture.get(1) else {
-                    continue;
-                };
-                let Some(span) = document.source_span(block, matched.range()) else {
-                    continue;
-                };
-                let entry = occurrences
-                    .entry(matched.as_str().to_string())
-                    .or_insert((0usize, span));
-                entry.0 += 1;
-            }
+        let analysis = analyze_acronyms(document);
+        let mut first_definitions: HashMap<&str, &LocatedDefinition> = HashMap::new();
+        for definition in &analysis.definitions {
+            first_definitions
+                .entry(definition.acronym.as_str())
+                .and_modify(|existing| {
+                    if definition.position() < existing.position() {
+                        *existing = definition;
+                    }
+                })
+                .or_insert(definition);
         }
-        let mut findings: Vec<_> = occurrences.into_iter().collect();
-        findings.sort_by(|left, right| {
-            left.1
-                .1
-                .file
-                .cmp(&right.1.1.file)
-                .then(left.1.1.start.cmp(&right.1.1.start))
-                .then(left.0.cmp(&right.0))
-        });
+
+        let mut findings: Vec<_> = first_definitions
+            .into_iter()
+            .filter_map(|(acronym, definition)| {
+                let usage_count = analysis
+                    .usages
+                    .iter()
+                    .filter(|usage| {
+                        !usage.is_definition
+                            && usage.acronym == acronym
+                            && usage.position() > definition.position()
+                    })
+                    .count();
+                (usage_count < rule.min_usages_after_definition)
+                    .then_some((definition, usage_count))
+            })
+            .collect();
+        findings.sort_by_key(|(definition, _)| definition.position());
+
         findings
             .into_iter()
-            .filter(|(_, (count, _))| *count < rule.min_occurrences)
-            .map(|(acronym, (_, span))| Diagnostic {
-                rule: self.id(),
-                severity: rule.level,
-                message: format!("acronym `{acronym}` is only used once"),
-                span,
+            .filter_map(|(definition, usage_count)| {
+                let block = &document.blocks[definition.block];
+                let span = document.source_span(block, definition.range.clone())?;
+                let usage_word = if usage_count == 1 { "use" } else { "uses" };
+                Some(Diagnostic {
+                    rule: self.id(),
+                    severity: rule.level,
+                    message: format!(
+                        "acronym `{}` has {usage_count} {usage_word} after its definition; minimum is {}",
+                        definition.acronym, rule.min_usages_after_definition
+                    ),
+                    span,
+                })
             })
             .collect()
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+struct ReadingPosition {
+    block: usize,
+    byte: usize,
+}
+
+#[derive(Debug)]
+struct LocatedDefinition {
+    acronym: String,
+    block: usize,
+    range: Range<usize>,
+}
+
+impl LocatedDefinition {
+    fn position(&self) -> ReadingPosition {
+        ReadingPosition {
+            block: self.block,
+            byte: self.range.start,
+        }
+    }
+}
+
+#[derive(Debug)]
+struct LocatedUsage {
+    acronym: String,
+    block: usize,
+    range: Range<usize>,
+    is_definition: bool,
+}
+
+impl LocatedUsage {
+    fn position(&self) -> ReadingPosition {
+        ReadingPosition {
+            block: self.block,
+            byte: self.range.start,
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+struct AcronymAnalysis {
+    definitions: Vec<LocatedDefinition>,
+    usages: Vec<LocatedUsage>,
+}
+
+fn analyze_acronyms(document: &Document) -> AcronymAnalysis {
+    let mut analysis = AcronymAnalysis::default();
+    for (block_index, block) in document.blocks.iter().enumerate() {
+        let definitions = extract_acronym_definitions(&block.text);
+        let definition_ranges: Vec<(String, Range<usize>)> = definitions
+            .iter()
+            .map(|definition: &AcronymDefinition| {
+                (definition.acronym.clone(), definition.range.clone())
+            })
+            .collect();
+
+        analysis.definitions.extend(definitions.into_iter().map(
+            |definition: AcronymDefinition| LocatedDefinition {
+                acronym: definition.acronym,
+                block: block_index,
+                range: definition.range,
+            },
+        ));
+        analysis
+            .usages
+            .extend(
+                find_acronym_usages(&block.text)
+                    .into_iter()
+                    .map(|usage: AcronymUsage| {
+                        let is_definition = definition_ranges.iter().any(|(acronym, range)| {
+                            acronym == &usage.acronym && *range == usage.range
+                        });
+                        LocatedUsage {
+                            acronym: usage.acronym,
+                            block: block_index,
+                            range: usage.range,
+                            is_definition,
+                        }
+                    }),
+            );
+    }
+    analysis
 }
 
 impl Rule for Term001 {

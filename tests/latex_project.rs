@@ -199,6 +199,104 @@ $mathsecret$ \(inlinemathsecret\) \[displaymathsecret\]
 }
 
 #[test]
+fn excludes_bibliography_commands_and_thebibliography_contents() {
+    let dir = tempdir().unwrap();
+    let main = dir.path().join("main.tex");
+    write(
+        &main,
+        r#"Visible prose before the references.
+\addbibresource{BIBRESOURCENASA.bib}
+\bibliographystyle{BIBSTYLENASA}
+\bibliography{BIBTEXNASA}
+\printbibliography[heading=BIBHEADINGNASA]
+\begin{thebibliography}{BIBWIDTHNASA}
+\bibitem{BIBKEYNASA} Author NASA. \emph{Title API}.
+\end{thebibliography}
+Visible prose after the references.
+"#,
+    );
+
+    let document = parser::parse(main, &DefaultConfig::load().latex).unwrap();
+    let logical = document
+        .blocks
+        .iter()
+        .map(|block| block.text.as_str())
+        .collect::<String>();
+
+    for retained in [
+        "Visible prose before the references.",
+        "Visible prose after the references.",
+    ] {
+        assert!(
+            logical.contains(retained),
+            "missing {retained:?} in {logical:?}"
+        );
+    }
+    for bibliography_text in [
+        "BIBRESOURCENASA",
+        "BIBSTYLENASA",
+        "BIBTEXNASA",
+        "BIBHEADINGNASA",
+        "BIBWIDTHNASA",
+        "BIBKEYNASA",
+        "Author NASA",
+        "Title API",
+    ] {
+        assert!(
+            !logical.contains(bibliography_text),
+            "found {bibliography_text:?} in {logical:?}"
+        );
+    }
+    assert_eq!(document.sources.len(), 1, "BibTeX source was loaded");
+}
+
+#[test]
+fn excludes_standalone_bibitem_entries_until_the_next_document_section() {
+    let dir = tempdir().unwrap();
+    let main = dir.path().join("main.tex");
+    write(
+        &main,
+        r#"Visible prose before the references.
+\bibitem{BIBKEYNASA} Author NASA. API title.
+\bibitem[Optional XML label]{BIBKEYXML} Another XML entry.
+\section{Visible section after references}
+Visible prose after the references.
+"#,
+    );
+
+    let document = parser::parse(main, &DefaultConfig::load().latex).unwrap();
+    let logical = document
+        .blocks
+        .iter()
+        .map(|block| block.text.as_str())
+        .collect::<String>();
+
+    for retained in [
+        "Visible prose before the references.",
+        "Visible section after references",
+        "Visible prose after the references.",
+    ] {
+        assert!(
+            logical.contains(retained),
+            "missing {retained:?} in {logical:?}"
+        );
+    }
+    for bibliography_text in [
+        "BIBKEYNASA",
+        "Author NASA",
+        "API title",
+        "Optional XML label",
+        "BIBKEYXML",
+        "Another XML entry",
+    ] {
+        assert!(
+            !logical.contains(bibliography_text),
+            "found {bibliography_text:?} in {logical:?}"
+        );
+    }
+}
+
+#[test]
 fn excludes_specialized_definition_fields_and_color_names() {
     let dir = tempdir().unwrap();
     let main = dir.path().join("main.tex");

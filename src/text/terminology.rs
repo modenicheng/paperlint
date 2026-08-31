@@ -1,81 +1,175 @@
 use regex::Regex;
+use std::{ops::Range, sync::OnceLock};
 
-/// Extract acronyms and their definitions from text
+/// Extract acronym definitions from one logical text block.
 ///
-/// Supports multiple Chinese academic paper formats:
+/// Recognized forms:
 /// 1. 中文名（English Full Name，ABC）
 /// 2. 中文名（English Full Name, ABC）
 /// 3. 中文名（ABC）
-/// 4. english full name (ABC) [for English papers]
+/// 4. English full name (ABC)
+///
+/// Definitions do not span logical text blocks. The acronym range points to the
+/// acronym itself so diagnostics can map it back to the exact LaTeX source.
 pub fn extract_acronym_definitions(text: &str) -> Vec<AcronymDefinition> {
     let mut definitions = Vec::new();
 
-    // Pattern 1 & 2: 中文名（English Full Name，ABC）or with comma
-    let pattern1 =
-        Regex::new(r"([^\(\uff08]+)[\(\uff08]([A-Z][a-zA-Z\s-]+)[，,]\s*([A-Z]{2,})[\)\uff09]")
-            .unwrap();
-    for cap in pattern1.captures_iter(text) {
+    for captures in expanded_definition_pattern().captures_iter(text) {
+        let (Some(whole), Some(english), Some(acronym)) =
+            (captures.get(0), captures.get(1), captures.get(2))
+        else {
+            continue;
+        };
         definitions.push(AcronymDefinition {
-            chinese: Some(cap[1].trim().to_string()),
-            english: Some(cap[2].trim().to_string()),
-            acronym: cap[3].trim().to_string(),
-            position: cap.get(0).unwrap().start(),
+            chinese: preceding_chinese_phrase(text, whole.start()),
+            english: Some(english.as_str().trim().to_string()),
+            acronym: acronym.as_str().to_string(),
+            range: acronym.range(),
         });
     }
 
-    // Pattern 3: 中文名（ABC）- only match if there are CJK characters
-    let pattern2 =
-        Regex::new(r"([^\(\uff08]*[\p{Han}][^\(\uff08]*)[\(\uff08]([A-Z]{2,})[\)\uff09]").unwrap();
-    for cap in pattern2.captures_iter(text) {
-        let chinese = cap[1].trim();
-        let acronym = cap[2].trim();
-
-        // Skip if already captured by pattern1
-        if definitions.iter().any(|d| d.acronym == acronym) {
+    for captures in short_definition_pattern().captures_iter(text) {
+        let (Some(whole), Some(acronym)) = (captures.get(0), captures.get(1)) else {
+            continue;
+        };
+        let chinese = preceding_chinese_phrase(text, whole.start());
+        let english = preceding_english_full_form(text, whole.start(), acronym.as_str());
+        if chinese.is_none() && english.is_none() {
             continue;
         }
-
         definitions.push(AcronymDefinition {
-            chinese: Some(chinese.to_string()),
-            english: None,
-            acronym: acronym.to_string(),
-            position: cap.get(0).unwrap().start(),
+            chinese,
+            english,
+            acronym: acronym.as_str().to_string(),
+            range: acronym.range(),
         });
     }
 
-    // Pattern 4: english full name (ABC)
-    // Match 2-5 lowercase words before (.
-    // Note: v0.1 uses simple heuristic that may capture extra words
-    let pattern3 = Regex::new(r"\b([a-z]+(?:\s+[a-z]+){1,4})\s*\(([A-Z]{2,})\)").unwrap();
-    for cap in pattern3.captures_iter(text) {
-        let acronym = cap[2].trim();
-
-        // Skip if already captured
-        if definitions.iter().any(|d| d.acronym == acronym) {
-            continue;
-        }
-
-        definitions.push(AcronymDefinition {
-            chinese: None,
-            english: Some(cap[1].trim().to_string()),
-            acronym: acronym.to_string(),
-            position: cap.get(1).unwrap().start(), // Use group 1 position, not group 0
-        });
-    }
-
+    definitions.sort_by(|left, right| {
+        left.range
+            .start
+            .cmp(&right.range.start)
+            .then(left.range.end.cmp(&right.range.end))
+            .then(left.acronym.cmp(&right.acronym))
+    });
+    definitions.dedup_by(|left, right| left.acronym == right.acronym && left.range == right.range);
     definitions
 }
 
-/// Find all acronym usages in text
+/// Find every acronym token in one logical text block.
 pub fn find_acronym_usages(text: &str) -> Vec<AcronymUsage> {
-    let pattern = Regex::new(r"\b([A-Z]{2,})\b").unwrap();
-    pattern
+    acronym_pattern()
         .captures_iter(text)
-        .map(|cap| AcronymUsage {
-            acronym: cap[1].to_string(),
-            position: cap.get(0).unwrap().start(),
+        .filter_map(|captures| captures.get(1))
+        .map(|matched| AcronymUsage {
+            acronym: matched.as_str().to_string(),
+            range: matched.range(),
         })
         .collect()
+}
+
+fn acronym_pattern() -> &'static Regex {
+    static PATTERN: OnceLock<Regex> = OnceLock::new();
+    PATTERN.get_or_init(|| Regex::new(r"(?-u:\b)([A-Z]{2,})(?-u:\b)").expect("valid regex"))
+}
+
+fn expanded_definition_pattern() -> &'static Regex {
+    static PATTERN: OnceLock<Regex> = OnceLock::new();
+    PATTERN.get_or_init(|| {
+        Regex::new(
+            r"[\(\u{ff08}]\s*([A-Za-z][A-Za-z\s-]*[A-Za-z])\s*[,，]\s*([A-Z]{2,})\s*[\)\u{ff09}]",
+        )
+        .expect("valid regex")
+    })
+}
+
+fn short_definition_pattern() -> &'static Regex {
+    static PATTERN: OnceLock<Regex> = OnceLock::new();
+    PATTERN.get_or_init(|| {
+        Regex::new(r"[\(\u{ff08}]\s*([A-Z]{2,})\s*[\)\u{ff09}]").expect("valid regex")
+    })
+}
+
+fn preceding_chinese_phrase(text: &str, open: usize) -> Option<String> {
+    let prefix = text.get(..open)?.trim_end();
+    let start = prefix
+        .char_indices()
+        .rev()
+        .find_map(|(index, ch)| is_phrase_boundary(ch).then_some(index + ch.len_utf8()))
+        .unwrap_or(0);
+    let phrase = prefix[start..].trim();
+    phrase.chars().any(is_cjk).then(|| phrase.to_string())
+}
+
+fn preceding_english_full_form(text: &str, open: usize, acronym: &str) -> Option<String> {
+    let prefix = text.get(..open)?.trim_end();
+    let start = prefix
+        .char_indices()
+        .rev()
+        .find_map(|(index, ch)| {
+            (!ch.is_ascii_alphabetic() && ch != '-' && ch != ' ' && ch != '\t')
+                .then_some(index + ch.len_utf8())
+        })
+        .unwrap_or(0);
+    let phrase = prefix[start..].trim();
+    let words: Vec<_> = english_word_pattern().find_iter(phrase).collect();
+    if words.len() < 2 {
+        return None;
+    }
+
+    for word_start in (0..words.len() - 1).rev() {
+        let candidate = &phrase[words[word_start].start()..words.last()?.end()];
+        if initials_match(candidate, acronym) {
+            return Some(candidate.to_string());
+        }
+    }
+    None
+}
+
+fn english_word_pattern() -> &'static Regex {
+    static PATTERN: OnceLock<Regex> = OnceLock::new();
+    PATTERN.get_or_init(|| Regex::new(r"[A-Za-z]+").expect("valid regex"))
+}
+
+fn initials_match(full_form: &str, acronym: &str) -> bool {
+    let initials: String = english_word_pattern()
+        .find_iter(full_form)
+        .flat_map(|word| word_initials(word.as_str()))
+        .collect();
+    initials == acronym
+}
+
+fn word_initials(word: &str) -> Vec<char> {
+    let uppercase: Vec<_> = word.chars().filter(char::is_ascii_uppercase).collect();
+    if uppercase.len() > 1 && !word.chars().all(|ch| ch.is_ascii_uppercase()) {
+        uppercase
+    } else {
+        word.chars()
+            .next()
+            .map(|ch| ch.to_ascii_uppercase())
+            .into_iter()
+            .collect()
+    }
+}
+
+fn is_phrase_boundary(ch: char) -> bool {
+    matches!(
+        ch,
+        '.' | '。' | '!' | '！' | '?' | '？' | ';' | '；' | ':' | '：' | '\n' | '\r'
+    )
+}
+
+fn is_cjk(ch: char) -> bool {
+    matches!(ch,
+        '\u{4E00}'..='\u{9FFF}' |
+        '\u{3400}'..='\u{4DBF}' |
+        '\u{20000}'..='\u{2A6DF}' |
+        '\u{2A700}'..='\u{2B73F}' |
+        '\u{2B740}'..='\u{2B81F}' |
+        '\u{2B820}'..='\u{2CEAF}' |
+        '\u{F900}'..='\u{FAFF}' |
+        '\u{2F800}'..='\u{2FA1F}'
+    )
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -83,13 +177,13 @@ pub struct AcronymDefinition {
     pub chinese: Option<String>,
     pub english: Option<String>,
     pub acronym: String,
-    pub position: usize,
+    pub range: Range<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AcronymUsage {
     pub acronym: String,
-    pub position: usize,
+    pub range: Range<usize>,
 }
 
 #[cfg(test)]
@@ -97,60 +191,76 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_extract_chinese_definition_with_comma() {
+    fn extracts_chinese_definition_with_full_width_comma() {
         let text = "大语言模型（Large Language Model，LLM）是一种新型模型。";
-        let defs = extract_acronym_definitions(text);
+        let definitions = extract_acronym_definitions(text);
 
-        assert_eq!(defs.len(), 1);
-        assert_eq!(defs[0].chinese, Some("大语言模型".to_string()));
-        assert_eq!(defs[0].english, Some("Large Language Model".to_string()));
-        assert_eq!(defs[0].acronym, "LLM");
-    }
-
-    #[test]
-    fn test_extract_chinese_definition_with_english_comma() {
-        let text = "检索增强生成（Retrieval-Augmented Generation, RAG）方法。";
-        let defs = extract_acronym_definitions(text);
-
-        assert_eq!(defs.len(), 1);
-        assert_eq!(defs[0].acronym, "RAG");
-    }
-
-    #[test]
-    fn test_extract_chinese_only() {
-        let text = "大语言模型（LLM）进行推理。";
-        let defs = extract_acronym_definitions(text);
-
-        assert_eq!(defs.len(), 1);
-        assert_eq!(defs[0].chinese, Some("大语言模型".to_string()));
-        assert_eq!(defs[0].english, None);
-        assert_eq!(defs[0].acronym, "LLM");
-    }
-
-    #[test]
-    fn test_extract_english_definition() {
-        let text = "We use large language model (LLM) for inference.";
-        let defs = extract_acronym_definitions(text);
-
-        assert_eq!(defs.len(), 1);
-        assert_eq!(defs[0].chinese, None);
-        // Note: v0.1 captures "use large language model" due to greedy matching
-        // This is acceptable for initial version
+        assert_eq!(definitions.len(), 1);
+        assert_eq!(definitions[0].chinese, Some("大语言模型".to_string()));
         assert_eq!(
-            defs[0].english,
-            Some("use large language model".to_string())
+            definitions[0].english,
+            Some("Large Language Model".to_string())
         );
-        assert_eq!(defs[0].acronym, "LLM");
+        assert_eq!(definitions[0].acronym, "LLM");
+        assert_eq!(&text[definitions[0].range.clone()], "LLM");
     }
 
     #[test]
-    fn test_find_usages() {
-        let text = "使用 LLM 和 RAG 技术进行 NLP 任务。";
+    fn extracts_hyphenated_definition_with_ascii_comma() {
+        let text = "检索增强生成（Retrieval-Augmented Generation, RAG）方法。";
+        let definitions = extract_acronym_definitions(text);
+
+        assert_eq!(definitions.len(), 1);
+        assert_eq!(definitions[0].acronym, "RAG");
+    }
+
+    #[test]
+    fn extracts_chinese_only_definition() {
+        let text = "大语言模型（LLM）进行推理。";
+        let definitions = extract_acronym_definitions(text);
+
+        assert_eq!(definitions.len(), 1);
+        assert_eq!(definitions[0].chinese, Some("大语言模型".to_string()));
+        assert_eq!(definitions[0].english, None);
+        assert_eq!(definitions[0].acronym, "LLM");
+    }
+
+    #[test]
+    fn extracts_title_case_and_lowercase_english_definitions() {
+        for text in [
+            "We use Large Language Model (LLM) for inference.",
+            "We use large language model (LLM) for inference.",
+        ] {
+            let definitions = extract_acronym_definitions(text);
+            assert_eq!(definitions.len(), 1, "{text}");
+            assert_eq!(
+                definitions[0].english,
+                Some(text[7..27].to_string()),
+                "{text}"
+            );
+            assert_eq!(definitions[0].acronym, "LLM");
+        }
+    }
+
+    #[test]
+    fn parenthesized_uppercase_text_without_a_full_form_is_not_a_definition() {
+        assert!(extract_acronym_definitions("Results are shown in (NASA).").is_empty());
+    }
+
+    #[test]
+    fn finds_ascii_acronyms_next_to_chinese_text() {
+        let text = "使用LLM和RAG技术进行NLP任务。";
         let usages = find_acronym_usages(text);
 
-        assert_eq!(usages.len(), 3);
-        assert_eq!(usages[0].acronym, "LLM");
-        assert_eq!(usages[1].acronym, "RAG");
-        assert_eq!(usages[2].acronym, "NLP");
+        assert_eq!(
+            usages
+                .iter()
+                .map(|usage| usage.acronym.as_str())
+                .collect::<Vec<_>>(),
+            ["LLM", "RAG", "NLP"]
+        );
+        for usage in usages {
+            assert_eq!(&text[usage.range], usage.acronym);
+        }
     }
 }

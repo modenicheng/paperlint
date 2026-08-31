@@ -29,7 +29,8 @@ pub struct Acr001Config {
 #[serde(deny_unknown_fields)]
 pub struct Acr002Config {
     pub level: Level,
-    pub min_occurrences: usize,
+    #[serde(alias = "min_occurrences")]
+    pub min_usages_after_definition: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -173,8 +174,11 @@ pub struct RawPaperlintConfig {
 #[derive(Debug, Clone, Deserialize, Default)]
 #[serde(deny_unknown_fields, default)]
 pub struct RawRulesConfig {
+    #[serde(alias = "ACR001")]
     pub acr001: Option<RuleSetting<Acr001Config>>,
+    #[serde(alias = "ACR002")]
     pub acr002: Option<RuleSetting<Acr002Config>>,
+    #[serde(alias = "TERM001")]
     pub term001: Option<RuleSetting<Term001Config>>,
     #[serde(alias = "STYLE001")]
     pub style001: Option<RuleSetting<Style001Config>>,

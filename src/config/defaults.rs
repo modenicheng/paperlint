@@ -25,7 +25,7 @@ impl DefaultConfig {
                 },
                 acr002: Acr002Config {
                     level: Level::Warning,
-                    min_occurrences: 2,
+                    min_usages_after_definition: 1,
                 },
                 term001: Term001Config {
                     level: Level::Warning,

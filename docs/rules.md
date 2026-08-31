@@ -15,7 +15,7 @@ An acronym must appear with its full form before it is used. All of these defini
 ```latex
 大语言模型（Large Language Model，LLM）   % recommended: full-width comma
 检索增强生成（Retrieval-Augmented Generation, RAG）  % ASCII comma also accepted
-大语言模型（LLM）                          % requires allow flag, see below
+大语言模型（LLM）
 large language model (LLM)                % English papers
 ```
 
@@ -30,15 +30,14 @@ error[ACR001]: 缩写 `LLM` 在定义前使用
 [rules.ACR001]
 level = "error"
 min_length = 2
-allow_chinese_without_english_full_name = false
-ignore = ["AI", "CPU", "GPU", "API"]   # do not hardcode; tune per project
+ignore = ["AI", "CPU", "GPU", "API"]   # tune per project
 ```
 
 ### ACR002 — Unnecessary acronym ✅
 
 **Level:** `warning` (default)
 
-Reports acronyms that are defined but never used again:
+Reports defined acronyms that are used fewer than `min_usages_after_definition` times after their first definition. The definition occurrence itself and any use before it are not counted:
 
 ```text
 warning[ACR002]:
@@ -300,7 +299,7 @@ syntax = "none"
 
 [rules.ACR001]
 level = "error"
-allow_chinese_without_english_full_name = false
+min_length = 2
 ignore = ["AI", "CPU", "GPU"]
 
 [rules.ACR002]
@@ -376,3 +375,5 @@ Canonical output formats are `human` and `json`; `text` remains accepted as a co
 Exit codes: `0` no error-level diagnostics (warnings may be present) · `1` one or more lint errors · `2` CLI/configuration/project/parse/render/output failure.
 
 Priority order: built-in defaults < `paperlint.toml` < CLI overrides.
+
+BibTeX and reference metadata are not paper prose and are never linted. Paperlint excludes citation keys, `\\addbibresource`, `\\bibliography`, `\\bibliographystyle`, `\\printbibliography`, and the complete `thebibliography` environment (including `\\bibitem` entries).

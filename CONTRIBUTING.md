@@ -128,7 +128,7 @@ The API is useful.
 \bibliography{refs}  % Contains "API" expansion
 \end{document}
 
-**Expected:** No error (definition in bibliography)
+**Expected:** No error (BibTeX and reference metadata are excluded from linting)
 **Actual:** error[ACR001]: acronym `API` used before definition
 
 **Version:** 0.1.0

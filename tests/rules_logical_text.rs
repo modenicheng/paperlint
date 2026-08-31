@@ -106,16 +106,14 @@ fn style_span_crosses_formatting_gap_and_trims_leading_crlf_whitespace() {
 }
 
 #[test]
-fn acr002_threshold_two_allows_two_cross_file_occurrences() {
+fn acr001_accepts_definition_and_later_use_without_reporting_the_definition() {
     let dir = tempdir().unwrap();
     let main = dir.path().join("main.tex");
-    let first = dir.path().join("first.tex");
-    let second = dir.path().join("second.tex");
-    write(&main, "\\input{first}\\input{second}");
-    write(&first, "NASA appears first.");
-    write(&second, "NASA appears second.");
-    let mut config = config_for(RuleId::Acr002);
-    config.rules.acr002.min_occurrences = 2;
+    write(
+        &main,
+        "Large Language Model (LLM) is introduced. LLM is used later.",
+    );
+    let config = config_for(RuleId::Acr001);
 
     let document = parser::parse(main, &config.latex).unwrap();
     let diagnostics = RuleEngine::new(RuleRegistry::default()).run(&document, &config);
@@ -127,26 +125,130 @@ fn acr002_threshold_two_allows_two_cross_file_occurrences() {
 }
 
 #[test]
-fn acr002_counts_across_included_files_and_reports_first_reading_order_occurrence() {
+fn acr001_reports_only_uses_before_a_cross_file_definition() {
     let dir = tempdir().unwrap();
     let main = dir.path().join("main.tex");
-    let first = dir.path().join("first.tex");
-    let second = dir.path().join("second.tex");
-    write(&main, "\\input{first}\\input{second}");
-    write(&first, "NASA appears first.");
-    write(&second, "NASA appears second.");
-    let mut config = config_for(RuleId::Acr002);
-    config.rules.acr002.min_occurrences = 3;
+    let before = dir.path().join("before.tex");
+    let definition = dir.path().join("definition.tex");
+    let after = dir.path().join("after.tex");
+    write(&main, "\\input{before}\\input{definition}\\input{after}");
+    write(&before, "LLM appears before its definition.");
+    write(&definition, "Large Language Model (LLM) is introduced.");
+    write(&after, "LLM appears after its definition.");
+    let config = config_for(RuleId::Acr001);
 
     let document = parser::parse(main, &config.latex).unwrap();
     let diagnostics = RuleEngine::new(RuleRegistry::default()).run(&document, &config);
 
     assert_eq!(diagnostics.len(), 1);
-    assert_eq!(diagnostics[0].span.file, first.canonicalize().unwrap());
+    assert_eq!(diagnostics[0].span.file, before.canonicalize().unwrap());
     let source = document.source(&diagnostics[0].span.file).unwrap();
     assert_eq!(
         &source.text[diagnostics[0].span.start..diagnostics[0].span.end],
-        "NASA"
+        "LLM"
+    );
+}
+
+#[test]
+fn acr001_reports_each_use_when_an_acronym_is_never_defined() {
+    let dir = tempdir().unwrap();
+    let main = dir.path().join("main.tex");
+    write(&main, "XYZ appears here. XYZ appears again.");
+    let config = config_for(RuleId::Acr001);
+
+    let document = parser::parse(main, &config.latex).unwrap();
+    let diagnostics = RuleEngine::new(RuleRegistry::default()).run(&document, &config);
+
+    assert_eq!(diagnostics.len(), 2);
+    assert!(
+        diagnostics
+            .iter()
+            .all(|diagnostic| diagnostic.message.contains("used before definition"))
+    );
+}
+
+#[test]
+fn acronym_definition_survives_latex_formatting_gaps() {
+    let dir = tempdir().unwrap();
+    let main = dir.path().join("main.tex");
+    write(
+        &main,
+        "Large \\textbf{Language} Model (LLM) is introduced. LLM is reused.",
+    );
+    let config = config_for(RuleId::Acr001);
+
+    let document = parser::parse(main, &config.latex).unwrap();
+    let diagnostics = RuleEngine::new(RuleRegistry::default()).run(&document, &config);
+
+    assert!(
+        diagnostics.is_empty(),
+        "unexpected diagnostics: {diagnostics:?}"
+    );
+}
+
+#[test]
+fn acr002_counts_only_uses_after_definition_across_included_files() {
+    let dir = tempdir().unwrap();
+    let main = dir.path().join("main.tex");
+    let definition = dir.path().join("definition.tex");
+    let uses = dir.path().join("uses.tex");
+    write(&main, "\\input{definition}\\input{uses}");
+    write(&definition, "Large Language Model (LLM) is introduced.");
+    write(&uses, "LLM appears first. LLM appears second.");
+    let mut config = config_for(RuleId::Acr002);
+    config.rules.acr002.min_usages_after_definition = 2;
+
+    let document = parser::parse(main, &config.latex).unwrap();
+    let diagnostics = RuleEngine::new(RuleRegistry::default()).run(&document, &config);
+
+    assert!(
+        diagnostics.is_empty(),
+        "unexpected diagnostics: {diagnostics:?}"
+    );
+}
+
+#[test]
+fn acr002_reports_the_definition_when_later_usages_are_below_threshold() {
+    let dir = tempdir().unwrap();
+    let main = dir.path().join("main.tex");
+    let definition = dir.path().join("definition.tex");
+    let use_file = dir.path().join("use.tex");
+    write(&main, "\\input{definition}\\input{use}");
+    write(&definition, "Large Language Model (LLM) is introduced.");
+    write(&use_file, "LLM appears only once after its definition.");
+    let mut config = config_for(RuleId::Acr002);
+    config.rules.acr002.min_usages_after_definition = 2;
+
+    let document = parser::parse(main, &config.latex).unwrap();
+    let diagnostics = RuleEngine::new(RuleRegistry::default()).run(&document, &config);
+
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(diagnostics[0].span.file, definition.canonicalize().unwrap());
+    let source = document.source(&diagnostics[0].span.file).unwrap();
+    assert_eq!(
+        &source.text[diagnostics[0].span.start..diagnostics[0].span.end],
+        "LLM"
+    );
+    assert!(
+        diagnostics[0]
+            .message
+            .contains("1 use after its definition")
+    );
+}
+
+#[test]
+fn acr002_ignores_acronyms_that_are_never_defined() {
+    let dir = tempdir().unwrap();
+    let main = dir.path().join("main.tex");
+    write(&main, "NASA appears once without a definition.");
+    let config = config_for(RuleId::Acr002);
+
+    let document = parser::parse(main, &config.latex).unwrap();
+    let diagnostics = RuleEngine::new(RuleRegistry::default()).run(&document, &config);
+
+    assert!(
+        diagnostics.is_empty(),
+        "unexpected diagnostics: {diagnostics:?}"
     );
 }
 
