@@ -114,9 +114,28 @@ fn map_boundary(mapping: &SourceMapping, logical: usize) -> Option<usize> {
 }
 
 fn line_column(text: &str, byte: usize) -> (usize, usize) {
-    let prefix = &text[..byte];
-    let line = prefix.bytes().filter(|byte| *byte == b'\n').count() + 1;
-    let line_start = prefix.rfind('\n').map_or(0, |index| index + 1);
+    let prefix = &text.as_bytes()[..byte];
+    let mut line = 1;
+    let mut line_start = 0;
+    let mut index = 0;
+    while index < prefix.len() {
+        match prefix[index] {
+            b'\r' => {
+                index += 1;
+                if prefix.get(index) == Some(&b'\n') {
+                    index += 1;
+                }
+                line += 1;
+                line_start = index;
+            }
+            b'\n' => {
+                index += 1;
+                line += 1;
+                line_start = index;
+            }
+            _ => index += 1,
+        }
+    }
     let column = text[line_start..byte].chars().count() + 1;
     (line, column)
 }
@@ -266,6 +285,9 @@ impl Loader<'_> {
         if kind == "caption" {
             return self.walk_isolated_field(node, "long", source, path, builder);
         }
+        if kind == "enum_item" {
+            return self.walk_enum_item(node, source, path, builder);
+        }
         if kind == "color_reference" {
             return self.walk_optional_prose_field(node, "text", source, path, builder);
         }
@@ -303,6 +325,29 @@ impl Loader<'_> {
             } else {
                 1
             };
+        }
+        Ok(())
+    }
+
+    fn walk_enum_item(
+        &mut self,
+        node: Node<'_>,
+        source: &[u8],
+        path: &Path,
+        builder: &mut BlockBuilder,
+    ) -> Result<(), ParseError> {
+        let label = node.child_by_field_name("label");
+        let mut cursor = node.walk();
+        let mut previous_end = label.map(|field| field.end_byte());
+        for child in node.named_children(&mut cursor) {
+            if label.is_some_and(|field| field.id() == child.id()) {
+                continue;
+            }
+            if let Some(end) = previous_end {
+                builder.push_whitespace(source, end..child.start_byte(), &mut self.blocks);
+            }
+            self.walk(child, source, path, builder)?;
+            previous_end = Some(child.end_byte());
         }
         Ok(())
     }
@@ -440,6 +485,8 @@ fn should_skip_subtree(kind: &str) -> bool {
             | "citation"
             | "label_definition"
             | "label_reference"
+            | "label_reference_range"
+            | "label_number"
             | "new_command_definition"
             | "renew_command_definition"
             | "new_environment_definition"
@@ -465,8 +512,15 @@ fn should_skip_subtree(kind: &str) -> bool {
             | "class_include"
             | "package_include"
             | "biblatex_include"
+            | "bibstyle_include"
+            | "bibtex_include"
             | "bibliography"
             | "graphics_include"
+            | "svg_include"
+            | "inkscape_include"
+            | "verbatim_include"
+            | "import_include"
+            | "tikz_library_import"
             | "listing_environment"
             | "minted_environment"
             | "verbatim_environment"

@@ -312,6 +312,66 @@ Ordinary prose remains visible.
 }
 
 #[test]
+fn excludes_list_labels_and_resource_reference_metadata() {
+    let dir = tempdir().unwrap();
+    let main = dir.path().join("main.tex");
+    write(
+        &main,
+        r#"\begin{itemize}
+\item[LISTLABELNASA] Ordinary list prose remains visible.
+\end{itemize}
+\includesvg[title={SVGNASA}]{svgsecret}
+\includeinkscape[title={INKSCAPENASA}]{inkscapesecret}
+\newlabel{labelsecret}{LABELNUMBERNASA}
+\crefrange{fromsecret}{tosecret}
+\bibliographystyle{BIBSTYLENASA}
+\bibliography{BIBTEXNASA}
+\verbatiminput{VERBATIMNASA}
+\import{IMPORTDIRNASA}{IMPORTFILENASA}
+\usetikzlibrary{TIKZLIBNASA}
+Visible ending remains.
+"#,
+    );
+
+    let document = parser::parse(main, &DefaultConfig::load().latex).unwrap();
+    let logical = document
+        .blocks
+        .iter()
+        .map(|block| block.text.as_str())
+        .collect::<String>();
+
+    for retained in [
+        "Ordinary list prose remains visible.",
+        "Visible ending remains.",
+    ] {
+        assert!(
+            logical.contains(retained),
+            "missing {retained:?} in {logical:?}"
+        );
+    }
+    for metadata in [
+        "LISTLABELNASA",
+        "SVGNASA",
+        "INKSCAPENASA",
+        "LABELNUMBERNASA",
+        "fromsecret",
+        "tosecret",
+        "BIBSTYLENASA",
+        "BIBTEXNASA",
+        "VERBATIMNASA",
+        "IMPORTDIRNASA",
+        "IMPORTFILENASA",
+        "TIKZLIBNASA",
+    ] {
+        assert!(
+            !logical.contains(metadata),
+            "found {metadata:?} in {logical:?}"
+        );
+    }
+    assert_eq!(document.sources.len(), 1, "import metadata was loaded");
+}
+
+#[test]
 fn paragraph_separators_and_titles_form_distinct_blocks() {
     let dir = tempdir().unwrap();
     let main = dir.path().join("main.tex");
@@ -385,6 +445,30 @@ fn absolute_fallback_paths_have_one_posix_root_separator() {
         paperlint::output::path::display_path(Path::new("/outside/file.tex"), Path::new("/paper"),),
         "/outside/file.tex"
     );
+}
+
+#[test]
+fn bare_cr_mapping_derives_line_and_column_from_original_source() {
+    let dir = tempdir().unwrap();
+    let main = dir.path().join("main.tex");
+    write(&main, "第一行。\r第二行\\textbf{目标词}。\r");
+
+    let document = parser::parse(main.clone(), &DefaultConfig::load().latex).unwrap();
+    let block = document
+        .blocks
+        .iter()
+        .find(|block| block.text.contains("目标词"))
+        .unwrap();
+    let start = block.text.find("目标词").unwrap();
+    let span = document
+        .source_span(block, start..start + "目标词".len())
+        .unwrap();
+    let source = document.source(&main.canonicalize().unwrap()).unwrap();
+
+    assert_eq!(&source.text[span.start..span.end], "目标词");
+    assert_eq!((span.line, span.column), (2, 12));
+    assert!(source.text.contains('\r'));
+    assert!(!source.text.contains('\n'));
 }
 
 #[test]
