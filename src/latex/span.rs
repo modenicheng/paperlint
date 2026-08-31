@@ -1,5 +1,5 @@
 use serde::Serialize;
-use std::path::PathBuf;
+use std::{ops::Range, path::PathBuf};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Span {
@@ -20,4 +20,16 @@ pub struct SourceFile {
 pub struct TextSegment {
     pub text: String,
     pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceMapping {
+    pub logical: Range<usize>,
+    pub source: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TextBlock {
+    pub text: String,
+    pub mappings: Vec<SourceMapping>,
 }

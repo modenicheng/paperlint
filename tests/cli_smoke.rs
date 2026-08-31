@@ -2,7 +2,7 @@ use assert_cmd::Command;
 use tempfile::tempdir;
 
 #[test]
-fn given_latex_when_running_cli_then_it_reports_diagnostics() {
+fn error_level_diagnostic_exits_one_and_is_reported() {
     let dir = tempdir().expect("tempdir");
     let input = dir.path().join("main.tex");
     std::fs::write(

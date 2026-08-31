@@ -33,7 +33,8 @@ impl DefaultConfig {
                 },
                 style001: Style001Config {
                     level: Level::Warning,
-                    max_words: 45,
+                    max_chars: 80,
+                    max_english_words: 45,
                 },
                 func001: Func001Config {
                     level: Level::Warning,

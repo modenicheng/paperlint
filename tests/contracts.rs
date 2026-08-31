@@ -34,3 +34,27 @@ fn diagnostic_when_serialized_then_rule_id_is_public_string() {
     assert_eq!(json["rule"], "ACR001");
     assert_eq!(json["severity"], "error");
 }
+
+#[test]
+fn json_renderer_is_fallible_and_keeps_diagnostics_presentation_free() {
+    let diagnostic = Diagnostic {
+        rule: RuleId::Term001,
+        severity: Level::Warning,
+        message: "use `GitHub` instead of `Github`".to_string(),
+        span: Span {
+            file: PathBuf::from("sections/method.tex"),
+            start: 10,
+            end: 16,
+            line: 2,
+            column: 3,
+        },
+    };
+
+    let output = paperlint::output::json::render(&[diagnostic]).expect("JSON renders");
+    let json: serde_json::Value = serde_json::from_str(&output).expect("valid JSON");
+
+    assert!(json[0].get("color").is_none());
+    assert!(json[0].get("summary").is_none());
+    assert_eq!(json[0]["span"]["start"], 10);
+    assert_eq!(json[0]["span"]["end"], 16);
+}

@@ -44,7 +44,14 @@ pub struct Term001Config {
 #[serde(deny_unknown_fields)]
 pub struct Style001Config {
     pub level: Level,
-    pub max_words: usize,
+    #[serde(default = "default_style001_max_chars")]
+    pub max_chars: usize,
+    #[serde(alias = "max_words")]
+    pub max_english_words: usize,
+}
+
+const fn default_style001_max_chars() -> usize {
+    80
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -169,6 +176,7 @@ pub struct RawRulesConfig {
     pub acr001: Option<RuleSetting<Acr001Config>>,
     pub acr002: Option<RuleSetting<Acr002Config>>,
     pub term001: Option<RuleSetting<Term001Config>>,
+    #[serde(alias = "STYLE001")]
     pub style001: Option<RuleSetting<Style001Config>>,
     pub func001: Option<RuleSetting<Func001Config>>,
     pub func002: Option<RuleSetting<Func002Config>>,

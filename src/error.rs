@@ -16,4 +16,10 @@ pub enum PaperlintError {
     },
     #[error(transparent)]
     Parse(#[from] crate::latex::parser::ParseError),
+    #[error("failed to render human output: {0}")]
+    HumanRender(#[from] crate::output::human::HumanRenderError),
+    #[error("failed to serialize JSON output: {0}")]
+    JsonRender(#[from] serde_json::Error),
+    #[error("failed to write output: {0}")]
+    OutputWrite(#[source] io::Error),
 }

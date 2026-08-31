@@ -22,18 +22,23 @@ cargo install --path .
 paperlint main.tex
 paperlint main.tex --config paperlint.toml
 paperlint main.tex --format json
+paperlint main.tex --format human --color never
 ```
 
-Exit codes: `0` no error · `1` lint errors · `2` config/parse failure.
+Output formats are `human` (default) and `json`; the legacy `text` value remains an alias for `human`. Human output supports `--color auto|always|never`. Exit codes are severity-based: `0` means no error-level diagnostics (warnings may be present), `1` means at least one lint error, and `2` means a CLI, configuration, project, parse, render, or output failure.
+
+Paperlint recursively loads `\input`, `\include`, `\subfile`, and `\subfileinclude` in reading order. The `\import` command family (`\import`, `\subimport`, `\inputfrom`, and `\includefrom`) is not supported.
 
 ### Example Output
 
 ```text
-error[ACR001]: 缩写 `LLM` 在定义前使用
-  --> sections/introduction.tex:17:8
+warning[STYLE001]: sentence has 112 effective characters; max is 80
+  ┌─ chapters/introduction.tex:42:1
+  │
+42│ ...original LaTeX source...
+  │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-warning[TERM001]: 建议使用统一术语 `大语言模型`，而不是 `大型语言模型`
-  --> sections/method.tex:42:15
+Found 1 problem: 0 errors, 1 warning
 ```
 
 ### Configuration
@@ -103,18 +108,23 @@ cargo install --path .
 paperlint main.tex                      # 检查论文
 paperlint main.tex --config paperlint.toml
 paperlint main.tex --format json        # 工具集成
+paperlint main.tex --format human --color never
 ```
 
-退出码：`0` 无 error · `1` 存在 lint error · `2` 配置或解析失败。
+输出格式为 `human`（默认）或 `json`；旧的 `text` 值仍作为 `human` 的兼容别名。人类可读输出支持 `--color auto|always|never`。退出码按诊断级别确定：`0` 表示没有 error 级诊断（可以有 warning），`1` 表示至少一个 lint error，`2` 表示 CLI、配置、工程、解析、渲染或输出失败。
+
+Paperlint 按阅读顺序递归加载 `\input`、`\include`、`\subfile` 和 `\subfileinclude`。暂不支持 `\import` 命令族（`\import`、`\subimport`、`\inputfrom`、`\includefrom`）。
 
 ### 输出示例
 
 ```text
-error[ACR001]: 缩写 `LLM` 在定义前使用
-  --> sections/introduction.tex:17:8
+warning[STYLE001]: sentence has 112 effective characters; max is 80
+  ┌─ chapters/introduction.tex:42:1
+  │
+42│ ...original LaTeX source...
+  │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-warning[TERM001]: 建议使用统一术语 `大语言模型`，而不是 `大型语言模型`
-  --> sections/method.tex:42:15
+Found 1 problem: 0 errors, 1 warning
 ```
 
 ### 配置

@@ -1,5 +1,5 @@
 use std::{
-    fs,
+    fs, io,
     path::{Path, PathBuf},
 };
 
@@ -13,7 +13,7 @@ impl ProjectResolver {
         Self { root }
     }
 
-    pub fn resolve(&self, input: &Path) -> std::io::Result<PathBuf> {
+    pub fn resolve(&self, input: &Path) -> io::Result<PathBuf> {
         let candidate = if input.is_absolute() {
             input.to_path_buf()
         } else {
@@ -21,4 +21,20 @@ impl ProjectResolver {
         };
         fs::canonicalize(candidate)
     }
+}
+
+/// Resolve an include relative to the source file that requested it.
+pub fn resolve_include(including_file: &Path, requested: &Path) -> io::Result<PathBuf> {
+    let parent = including_file.parent().unwrap_or_else(|| Path::new("."));
+    let candidate = parent.join(requested);
+    if candidate.exists() {
+        return fs::canonicalize(candidate);
+    }
+    if requested.extension().is_none() {
+        let tex_candidate = candidate.with_extension("tex");
+        if tex_candidate.exists() {
+            return fs::canonicalize(tex_candidate);
+        }
+    }
+    fs::canonicalize(candidate)
 }

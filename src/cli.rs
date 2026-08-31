@@ -13,8 +13,11 @@ pub struct Cli {
     #[arg(long)]
     pub config: Option<PathBuf>,
 
-    #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
+    #[arg(long, value_enum, default_value_t = OutputFormat::Human)]
     pub format: OutputFormat,
+
+    #[arg(long, value_enum, default_value_t = ColorChoice::Auto)]
+    pub color: ColorChoice,
 
     #[arg(long = "enable")]
     pub enable: Vec<String>,
@@ -25,6 +28,14 @@ pub struct Cli {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum OutputFormat {
-    Text,
+    #[value(alias = "text")]
+    Human,
     Json,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum ColorChoice {
+    Auto,
+    Always,
+    Never,
 }

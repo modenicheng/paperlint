@@ -112,9 +112,10 @@ max_chars = 80
 max_english_words = 45
 ```
 
+The legacy `max_words` key remains accepted as an alias for `max_english_words`; `max_chars` defaults to `80` when omitted.
+
 ```text
-warning[STYLE001]:
-该句包含 112 个有效字符，建议拆分
+warning[STYLE001]: sentence has 112 effective characters; max is 80
 ```
 
 ### STYLE002 — Weak verb overuse 🚧
@@ -276,7 +277,9 @@ Detects `,`/`:`/`()` in Chinese context, with exceptions for `Large Language Mod
 ignore_patterns = ["第\\d+章", "图\\d+", "表\\d+"]
 ```
 
-## LaTeX configuration
+## LaTeX projects and configuration
+
+Paperlint recursively expands `\input`, `\include`, `\subfile`, and `\subfileinclude` in reading order. Include paths are resolved relative to the including file, with `.tex` fallback for extensionless paths. The `\import` command family (`\import`, `\subimport`, `\inputfrom`, and `\includefrom`) is not supported.
 
 ```toml
 [latex]
@@ -362,11 +365,14 @@ ignore_environments = [
 ## CLI
 
 ```bash
-paperlint main.tex                        # text output
+paperlint main.tex                                  # human output
 paperlint main.tex --config paperlint.toml
-paperlint main.tex --format json          # for tooling
+paperlint main.tex --format human --color never
+paperlint main.tex --format json                    # for tooling
 ```
 
-Exit codes: `0` no error · `1` lint errors found · `2` config/parse failure.
+Canonical output formats are `human` and `json`; `text` remains accepted as a compatibility alias for `human`. Human color control is `--color auto|always|never`; JSON never contains ANSI styling.
+
+Exit codes: `0` no error-level diagnostics (warnings may be present) · `1` one or more lint errors · `2` CLI/configuration/project/parse/render/output failure.
 
 Priority order: built-in defaults < `paperlint.toml` < CLI overrides.
