@@ -53,7 +53,8 @@ fn human_main_reports_included_chinese_source_and_warning_exits_zero() {
         0,
     );
 
-    assert!(output.contains("warning[TERM001]: use `GitHub` instead of `Github`"));
+    assert!(output.contains("warning[TERM001] chapters/child.tex:1:"));
+    assert!(output.contains("use `GitHub` instead of `Github`"));
     assert!(output.contains("chapters/child.tex:1:"));
     assert!(output.contains("这里使用 Github 作为需要统一的术语。"));
     assert!(output.contains("Found 1 problem: 0 errors, 1 warning"));

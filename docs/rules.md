@@ -370,7 +370,7 @@ paperlint main.tex --format human --color never
 paperlint main.tex --format json                    # for tooling
 ```
 
-Canonical output formats are `human` and `json`; `text` remains accepted as a compatibility alias for `human`. Human color control is `--color auto|always|never`; JSON never contains ANSI styling.
+Canonical output formats are `human` and `json`; `text` remains accepted as a compatibility alias for `human`. Human diagnostics use a compact three-line layout. Source snippets are capped at 80 display columns and cropped around the diagnostic span with `…`; a trailing `…` on the marker means the span continues beyond the visible excerpt or onto another line. Human color control is `--color auto|always|never`; JSON never contains ANSI styling.
 
 Exit codes: `0` no error-level diagnostics (warnings may be present) · `1` one or more lint errors · `2` CLI/configuration/project/parse/render/output failure.
 

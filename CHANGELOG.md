@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Human diagnostics now use a compact three-line layout, crop source excerpts to 80 display columns around the finding, cap headers at 100 columns, and align markers for CJK text, emoji, tabs, CRLF, and multiline spans
 - CI: dropped redundant `cargo build` (clippy/test already compile), added `--all-targets --all-features` to clippy/test, replaced three `actions/cache@v3` steps with `Swatinem/rust-cache@v2`, bumped `actions/checkout` to v4
 - Docs consolidated: rule reference moved to `docs/rules.md`; removed WIKI/QUICKSTART/PROJECT_SUMMARY/COMPLETE_SUMMARY/IMPLEMENTATION_STATUS (overlapping content that would drift)
 - CONTRIBUTING: Rust 1.85+ requirement, lefthook setup and workflow, commit types aligned with the validator (added `perf`, `build`, `ci`, `revert`)
