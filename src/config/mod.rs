@@ -7,5 +7,5 @@ pub use rules::{
     LexiconConfig, LexiconEntryConfig, NlpConfig, PaperlintConfig, Punc002Config, RawLatexConfig,
     RawLexiconConfig, RawPaperlintConfig, RawRulesConfig, RuleSetting, Style001Config,
     Style002Config, Syn001Config, Syn002Config, Syn003Config, Syn004Config, Syn005Config,
-    Term001Config,
+    Term001Config, Term002Config,
 };

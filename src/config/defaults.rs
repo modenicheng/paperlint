@@ -31,6 +31,10 @@ impl DefaultConfig {
                     level: Level::Warning,
                     replace,
                 },
+                term002: Term002Config {
+                    level: Level::Warning,
+                    context_chars: 100,
+                },
                 style001: Style001Config {
                     level: Level::Warning,
                     max_chars: 80,

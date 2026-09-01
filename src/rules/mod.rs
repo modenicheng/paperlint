@@ -8,9 +8,11 @@ use crate::{
 
 mod case001;
 mod punc002;
+mod term002;
 
 pub use case001::Case001;
 pub use punc002::Punc002;
+pub use term002::Term002;
 
 pub trait Rule {
     fn id(&self) -> RuleId;

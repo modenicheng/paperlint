@@ -33,6 +33,21 @@ pub struct Acr002Config {
     pub min_usages_after_definition: usize,
 }
 
+/// TERM002: shared lexicon terms with `requires_explanation = true`
+/// must be explained near their first use. Term selection lives only in
+/// `[[lexicon.entries]]`; this config never carries a term list.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Term002Config {
+    pub level: Level,
+    #[serde(default = "default_term002_context_chars")]
+    pub context_chars: usize,
+}
+
+const fn default_term002_context_chars() -> usize {
+    100
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Term001Config {
@@ -238,6 +253,7 @@ pub struct RulesConfig {
     pub acr001: Acr001Config,
     pub acr002: Acr002Config,
     pub term001: Term001Config,
+    pub term002: Term002Config,
     pub style001: Style001Config,
     pub punc002: Punc002Config,
     pub case001: Case001Config,
@@ -269,6 +285,8 @@ pub struct RawRulesConfig {
     pub acr002: Option<RuleSetting<Acr002Config>>,
     #[serde(alias = "TERM001")]
     pub term001: Option<RuleSetting<Term001Config>>,
+    #[serde(alias = "TERM002")]
+    pub term002: Option<RuleSetting<Term002Config>>,
     #[serde(alias = "STYLE001")]
     pub style001: Option<RuleSetting<Style001Config>>,
     #[serde(alias = "PUNC002")]
@@ -321,6 +339,7 @@ impl PaperlintConfig {
             Ok(RuleId::Acr001) => self.rules.acr001.level = level,
             Ok(RuleId::Acr002) => self.rules.acr002.level = level,
             Ok(RuleId::Term001) => self.rules.term001.level = level,
+            Ok(RuleId::Term002) => self.rules.term002.level = level,
             Ok(RuleId::Style001) => self.rules.style001.level = level,
             Ok(RuleId::Punc002) => self.rules.punc002.level = level,
             Ok(RuleId::Case001) => self.rules.case001.level = level,
@@ -347,6 +366,9 @@ impl PaperlintConfig {
         }
         if let Some(rule) = raw.rules.term001 {
             config.rules.term001 = resolve(rule, config.rules.term001.clone());
+        }
+        if let Some(rule) = raw.rules.term002 {
+            config.rules.term002 = resolve(rule, config.rules.term002.clone());
         }
         if let Some(rule) = raw.rules.style001 {
             config.rules.style001 = resolve(rule, config.rules.style001.clone());
@@ -425,6 +447,12 @@ impl HasLevel for Acr002Config {
 }
 
 impl HasLevel for Term001Config {
+    fn set_level(&mut self, level: Level) {
+        self.level = level;
+    }
+}
+
+impl HasLevel for Term002Config {
     fn set_level(&mut self, level: Level) {
         self.level = level;
     }
