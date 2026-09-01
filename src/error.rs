@@ -14,6 +14,8 @@ pub enum PaperlintError {
         path: PathBuf,
         source: toml::de::Error,
     },
+    #[error("failed to read stdin: {0}")]
+    StdinRead(#[source] io::Error),
     #[error(transparent)]
     Parse(#[from] crate::latex::parser::ParseError),
     #[error("failed to render human output: {0}")]

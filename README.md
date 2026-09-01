@@ -20,14 +20,19 @@ cd paperlint
 cargo install --path .
 
 paperlint main.tex
+cat main.tex | paperlint
+paperlint - < main.tex
 paperlint main.tex --config paperlint.toml
 paperlint main.tex --format json
+cat main.tex | paperlint --format json
 paperlint main.tex --format human --color never
 ```
 
 Output formats are `human` (default) and `json`; the legacy `text` value remains an alias for `human`. Human diagnostics use a compact three-line layout and crop long physical source lines around the highlighted span. Human output supports `--color auto|always|never`. Exit codes are severity-based: `0` means no error-level diagnostics (warnings may be present), `1` means at least one lint error, and `2` means a CLI, configuration, project, parse, render, or output failure.
 
-Paperlint recursively loads `\input`, `\include`, `\subfile`, and `\subfileinclude` in reading order. The `\import` command family (`\import`, `\subimport`, `\inputfrom`, and `\includefrom`) is not supported. BibTeX/reference metadata—including citation keys, bibliography commands, and `thebibliography` entries—is excluded from linting.
+With no `INPUT`, or with `INPUT` set to `-`, Paperlint reads one UTF-8 LaTeX source from standard input and reports its path as `<stdin>`. Stdin is intentionally single-file: if the source contains `\input`, `\include`, `\subfile`, or `\subfileinclude`, pass the project entry file path instead so relative includes have a directory.
+
+For file input, Paperlint recursively loads `\input`, `\include`, `\subfile`, and `\subfileinclude` in reading order. The `\import` command family (`\import`, `\subimport`, `\inputfrom`, and `\includefrom`) is not supported. BibTeX/reference metadata—including citation keys, bibliography commands, and `thebibliography` entries—is excluded from linting.
 
 ### Example Output
 
@@ -108,15 +113,20 @@ git clone https://github.com/modenicheng/paperlint.git
 cd paperlint
 cargo install --path .
 
-paperlint main.tex                      # 检查论文
+paperlint main.tex                      # 检查论文工程
+cat main.tex | paperlint                # 从标准输入检查单文件
+paperlint - < main.tex                  # 显式使用标准输入
 paperlint main.tex --config paperlint.toml
 paperlint main.tex --format json        # 工具集成
+cat main.tex | paperlint --format json
 paperlint main.tex --format human --color never
 ```
 
 输出格式为 `human`（默认）或 `json`；旧的 `text` 值仍作为 `human` 的兼容别名。人类可读诊断采用紧凑的三行排版，过长的物理源码行会围绕问题位置自动裁剪。颜色可通过 `--color auto|always|never` 控制。退出码按诊断级别确定：`0` 表示没有 error 级诊断（可以有 warning），`1` 表示至少一个 lint error，`2` 表示 CLI、配置、工程、解析、渲染或输出失败。
 
-Paperlint 按阅读顺序递归加载 `\input`、`\include`、`\subfile` 和 `\subfileinclude`。暂不支持 `\import` 命令族（`\import`、`\subimport`、`\inputfrom`、`\includefrom`）。BibTeX/参考文献元数据（包括引用键、书目命令和 `thebibliography` 条目）不属于论文正文，不参与检查。
+省略 `INPUT` 或将其设为 `-` 时，Paperlint 从标准输入读取一个 UTF-8 LaTeX 源文件，诊断路径显示为 `<stdin>`。stdin 刻意采用单文件模式：如果源码包含 `\input`、`\include`、`\subfile` 或 `\subfileinclude`，应传入工程入口文件路径，以便按其目录解析相对引用。
+
+使用文件输入时，Paperlint 按阅读顺序递归加载 `\input`、`\include`、`\subfile` 和 `\subfileinclude`。暂不支持 `\import` 命令族（`\import`、`\subimport`、`\inputfrom`、`\includefrom`）。BibTeX/参考文献元数据（包括引用键、书目命令和 `thebibliography` 条目）不属于论文正文，不参与检查。
 
 ### 输出示例
 

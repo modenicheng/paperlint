@@ -22,6 +22,25 @@ fn paperlint(project: &Path) -> Command {
     command
 }
 
+fn stdin_stdout(mut command: Command, input: &str, expected_code: i32) -> String {
+    let output = command
+        .write_stdin(input)
+        .output()
+        .expect("run paperlint with stdin");
+    assert_eq!(
+        output.status.code(),
+        Some(expected_code),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        output.stderr.is_empty(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).expect("stdout is UTF-8")
+}
+
 fn stdout(command: &mut Command, expected_code: i32) -> String {
     let output = command.output().expect("run paperlint");
     assert_eq!(
@@ -36,6 +55,60 @@ fn stdout(command: &mut Command, expected_code: i32) -> String {
         String::from_utf8_lossy(&output.stderr)
     );
     String::from_utf8(output.stdout).expect("stdout is UTF-8")
+}
+
+#[test]
+fn stdin_defaults_to_human_single_file_linting() {
+    let command = Command::cargo_bin("paperlint").expect("paperlint binary");
+    let output = stdin_stdout(
+        command,
+        "这是正文。这里使用 Github 作为需要统一的术语。\n",
+        0,
+    );
+
+    assert!(output.contains("warning[TERM001] <stdin>:1:"));
+    assert!(output.contains("use `GitHub` instead of `Github`"));
+    assert!(!output.contains("No problems found"));
+}
+
+#[test]
+fn empty_stdin_renders_no_problems() {
+    let command = Command::cargo_bin("paperlint").expect("paperlint binary");
+    assert_eq!(stdin_stdout(command, "", 0), "No problems found.\n");
+}
+
+#[test]
+fn stdin_error_diagnostic_preserves_exit_one() {
+    let command = Command::cargo_bin("paperlint").expect("paperlint binary");
+    let output = stdin_stdout(command, "XYZ is used without a definition.\n", 1);
+    assert!(output.contains("error[ACR001] <stdin>:1:1"), "{output}");
+}
+
+#[test]
+fn explicit_dash_accepts_json_stdin_and_uses_virtual_source_span() {
+    let mut command = Command::cargo_bin("paperlint").expect("paperlint binary");
+    command.args(["-", "--format", "json"]);
+    let output = stdin_stdout(command, "前文。Github 后文。\n", 0);
+    let diagnostics: Value = serde_json::from_str(&output).expect("valid diagnostic JSON");
+    let diagnostic = &diagnostics.as_array().expect("JSON array")[0];
+    assert_eq!(diagnostic["rule"], "TERM001");
+    assert_eq!(diagnostic["span"]["file"], "<stdin>");
+    assert_eq!(diagnostic["span"]["line"], 1);
+    assert_eq!(diagnostic["span"]["column"], 4);
+}
+
+#[test]
+fn stdin_include_fails_with_a_helpful_project_error() {
+    let mut command = Command::cargo_bin("paperlint").expect("paperlint binary");
+    let output = command
+        .write_stdin("\\input{chapter}\n")
+        .output()
+        .expect("run paperlint with stdin include");
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("stdin input includes chapter"), "{stderr}");
+    assert!(stderr.contains("input file path"), "{stderr}");
 }
 
 #[test]

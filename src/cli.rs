@@ -8,6 +8,8 @@ use std::path::PathBuf;
     about = "Mechanical static checks for LaTeX papers"
 )]
 pub struct Cli {
+    /// LaTeX entry file, or `-`/omitted to read one file from stdin
+    #[arg(value_name = "INPUT", default_value = "-")]
     pub input: PathBuf,
 
     #[arg(long)]

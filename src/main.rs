@@ -7,7 +7,10 @@ use paperlint::{
     lint::{diagnostic::Diagnostic, engine::RuleEngine, registry::RuleRegistry},
     output::{human, json, path::display_path},
 };
-use std::{io::Write, path::Path};
+use std::{
+    io::{Read, Write},
+    path::{Path, PathBuf},
+};
 
 struct LintResult {
     document: Document,
@@ -66,14 +69,11 @@ fn execute(cli: Cli) -> Result<i32, PaperlintError> {
 }
 
 fn run(
-    input: std::path::PathBuf,
-    config_path: Option<std::path::PathBuf>,
+    input: PathBuf,
+    config_path: Option<PathBuf>,
     enable: Vec<String>,
     disable: Vec<String>,
 ) -> Result<LintResult, PaperlintError> {
-    let cwd = std::env::current_dir().map_err(PaperlintError::CurrentDir)?;
-    let resolver = ProjectResolver::new(cwd);
-    let resolved_input = resolver.resolve(&input).map_err(PaperlintError::Project)?;
     let mut config = DefaultConfig::load();
     if let Some(path) = config_path {
         let loaded =
@@ -86,7 +86,19 @@ fn run(
         config = PaperlintConfig::from_raw(raw, config);
     }
     let config = config.with_overrides(&enable, &disable);
-    let document = parser::parse(resolved_input, &config.latex)?;
+    let document = if input.as_os_str() == "-" {
+        let mut source = String::new();
+        std::io::stdin()
+            .lock()
+            .read_to_string(&mut source)
+            .map_err(PaperlintError::StdinRead)?;
+        parser::parse_stdin(source, &config.latex)?
+    } else {
+        let cwd = std::env::current_dir().map_err(PaperlintError::CurrentDir)?;
+        let resolver = ProjectResolver::new(cwd);
+        let resolved_input = resolver.resolve(&input).map_err(PaperlintError::Project)?;
+        parser::parse(resolved_input, &config.latex)?
+    };
     let engine = RuleEngine::new(RuleRegistry::default());
     let diagnostics = engine.run(&document, &config);
     Ok(LintResult {

@@ -36,6 +36,8 @@ pub enum ParseError {
         requested: PathBuf,
         source: std::io::Error,
     },
+    #[error("stdin input includes {requested}; include expansion requires an input file path")]
+    StdinInclude { requested: PathBuf },
     #[error("include cycle detected: {cycle}")]
     Cycle { cycle: String },
 }
@@ -149,21 +151,20 @@ pub fn parse(path: PathBuf, config: &LatexConfig) -> Result<Document, ParseError
         .parent()
         .map(Path::to_path_buf)
         .unwrap_or_else(|| entry.clone());
-    let mut loader = Loader {
-        config,
-        sources: Vec::new(),
-        blocks: Vec::new(),
-        visiting: HashSet::new(),
-        loaded: HashSet::new(),
-        stack: Vec::new(),
-    };
+    let mut loader = Loader::new(config, true);
     loader.load(entry.clone())?;
-    Ok(Document {
-        entry,
-        root,
-        sources: loader.sources,
-        blocks: loader.blocks,
-    })
+    Ok(loader.document(entry, root))
+}
+
+/// Parse a single LaTeX source held in memory.
+///
+/// Stdin has no project directory, so include expansion is deliberately not
+/// attempted. The virtual path is retained in source spans and diagnostics.
+pub fn parse_stdin(text: String, config: &LatexConfig) -> Result<Document, ParseError> {
+    let entry = PathBuf::from("<stdin>");
+    let mut loader = Loader::new(config, false);
+    loader.load_text(entry.clone(), text)?;
+    Ok(loader.document(entry, PathBuf::new()))
 }
 
 struct Loader<'a> {
@@ -173,9 +174,31 @@ struct Loader<'a> {
     visiting: HashSet<PathBuf>,
     loaded: HashSet<PathBuf>,
     stack: Vec<PathBuf>,
+    expand_includes: bool,
 }
 
-impl Loader<'_> {
+impl<'a> Loader<'a> {
+    fn new(config: &'a LatexConfig, expand_includes: bool) -> Self {
+        Self {
+            config,
+            sources: Vec::new(),
+            blocks: Vec::new(),
+            visiting: HashSet::new(),
+            loaded: HashSet::new(),
+            stack: Vec::new(),
+            expand_includes,
+        }
+    }
+
+    fn document(self, entry: PathBuf, root: PathBuf) -> Document {
+        Document {
+            entry,
+            root,
+            sources: self.sources,
+            blocks: self.blocks,
+        }
+    }
+
     fn load(&mut self, path: PathBuf) -> Result<(), ParseError> {
         if self.loaded.contains(&path) {
             return Ok(());
@@ -212,9 +235,13 @@ impl Loader<'_> {
             path: path.to_path_buf(),
             source,
         })?;
+        self.load_text(path.to_path_buf(), text)
+    }
+
+    fn load_text(&mut self, path: PathBuf, text: String) -> Result<(), ParseError> {
         let source_index = self.sources.len();
         self.sources.push(SourceFile {
-            path: path.to_path_buf(),
+            path: path.clone(),
             text,
         });
 
@@ -223,18 +250,21 @@ impl Loader<'_> {
         parser
             .set_language(&language)
             .map_err(|error| ParseError::Language {
-                path: path.to_path_buf(),
+                path: path.clone(),
                 message: error.to_string(),
             })?;
         let tree = parser
             .parse(self.sources[source_index].text.as_bytes(), None)
-            .ok_or_else(|| ParseError::TreeSitter {
-                path: path.to_path_buf(),
-            })?;
+            .ok_or_else(|| ParseError::TreeSitter { path: path.clone() })?;
 
-        let mut builder = BlockBuilder::new(path.to_path_buf());
+        let mut builder = BlockBuilder::new(path.clone());
         let source_text = self.sources[source_index].text.clone();
-        self.walk(tree.root_node(), source_text.as_bytes(), path, &mut builder)?;
+        self.walk(
+            tree.root_node(),
+            source_text.as_bytes(),
+            &path,
+            &mut builder,
+        )?;
         builder.flush(&mut self.blocks);
         Ok(())
     }
@@ -256,6 +286,9 @@ impl Loader<'_> {
                     path: path.to_path_buf(),
                 })?;
             let requested = PathBuf::from(node_text(path_node, source).trim_matches(['{', '}']));
+            if !self.expand_includes {
+                return Err(ParseError::StdinInclude { requested });
+            }
             let resolved =
                 resolve_include(path, &requested).map_err(|source| ParseError::Include {
                     including_file: path.to_path_buf(),

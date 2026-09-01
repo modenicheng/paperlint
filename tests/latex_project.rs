@@ -1,5 +1,5 @@
 use paperlint::{config::DefaultConfig, latex::parser};
-use std::{fs, path::Path};
+use std::{fs, path::Path, path::PathBuf};
 use tempfile::tempdir;
 
 fn write(path: &Path, text: &str) {
@@ -16,6 +16,39 @@ fn tree_sitter_latex_language_links_and_parses() {
     parser.set_language(&language).unwrap();
     let tree = parser.parse(br"\input{child}", None).unwrap();
     assert!(!tree.root_node().has_error());
+}
+
+#[test]
+fn parses_stdin_source_in_memory_with_virtual_spans() {
+    let text = "前文。Github 后文。\n".to_string();
+    let document = parser::parse_stdin(text.clone(), &DefaultConfig::load().latex).unwrap();
+
+    assert_eq!(document.entry, PathBuf::from("<stdin>"));
+    assert_eq!(document.root, PathBuf::new());
+    assert_eq!(document.sources.len(), 1);
+    assert_eq!(document.sources[0].path, PathBuf::from("<stdin>"));
+    assert_eq!(document.sources[0].text, text);
+    assert!(
+        document
+            .blocks
+            .iter()
+            .any(|block| block.text.contains("Github"))
+    );
+}
+
+#[test]
+fn stdin_include_is_a_contextual_parse_error() {
+    let error = parser::parse_stdin(
+        "\\input{chapter}\n".to_string(),
+        &DefaultConfig::load().latex,
+    )
+    .unwrap_err();
+
+    assert!(matches!(
+        error,
+        parser::ParseError::StdinInclude { requested }
+            if requested == *"chapter"
+    ));
 }
 
 #[test]

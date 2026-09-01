@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Stdin input: `cat main.tex | paperlint`, omitted `INPUT`, and explicit `paperlint -` lint one in-memory LaTeX source with `<stdin>` spans; recursive includes remain available through file input
 - `rust-toolchain.toml` (stable channel + rustfmt/clippy) — Rust 2024 edition requires 1.85+; contributors no longer hit mysterious toolchain errors
 - Git hooks via lefthook: `pre-commit` (fmt + check), `commit-msg` (Conventional Commits validation via `scripts/commit-msg.sh`), `pre-push` (clippy -D warnings + tests)
 

@@ -364,11 +364,16 @@ ignore_environments = [
 ## CLI
 
 ```bash
-paperlint main.tex                                  # human output
+paperlint main.tex                                  # human output, full project
+cat main.tex | paperlint                            # human output, stdin single file
+paperlint - < main.tex                              # explicit stdin
 paperlint main.tex --config paperlint.toml
 paperlint main.tex --format human --color never
-paperlint main.tex --format json                    # for tooling
+cat main.tex | paperlint --format json              # stdin JSON for tooling
+paperlint main.tex --format json                    # project JSON for tooling
 ```
+
+Omitting `INPUT` or passing `-` reads one UTF-8 LaTeX source from stdin and uses `<stdin>` in diagnostic spans. Stdin is single-file input and rejects LaTeX include commands; pass an entry file path for recursive project expansion.
 
 Canonical output formats are `human` and `json`; `text` remains accepted as a compatibility alias for `human`. Human diagnostics use a compact three-line layout. Source snippets are capped at 80 display columns and cropped around the diagnostic span with `…`; a trailing `…` on the marker means the span continues beyond the visible excerpt or onto another line. Human color control is `--color auto|always|never`; JSON never contains ANSI styling.
 
