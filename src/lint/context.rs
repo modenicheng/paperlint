@@ -10,7 +10,7 @@ use crate::{
     latex::parser::Document,
     latex::span::Span,
     text::{
-        lexicon::{LexemeKind, LexemeSource, Lexicon},
+        lexicon::{FrozenMatchers, LexemeKind, LexemeSource, Lexicon},
         terminology::{extract_acronym_definitions, find_acronym_usages},
     },
 };
@@ -95,6 +95,8 @@ impl DocumentTermRegistry {
         let mut definitions = Vec::new();
         let mut usages = Vec::new();
         let mut lexicon_occurrences = Vec::new();
+        // Frozen scan matchers are compiled once per run, not per block.
+        let frozen_matchers = lexicon.matchers();
 
         for (block_index, block) in document.blocks.iter().enumerate() {
             let block_definitions = extract_acronym_definitions(&block.text);
@@ -136,6 +138,7 @@ impl DocumentTermRegistry {
                 &block.text,
                 block_index,
                 lexicon,
+                frozen_matchers.as_deref(),
                 &mut lexicon_occurrences,
             );
         }
@@ -237,7 +240,12 @@ impl DocumentTermRegistry {
     }
 }
 
-/// Collect lexicon occurrences for one block. Two invariants hold:
+/// Collect lexicon occurrences for one block using the lexicon's frozen
+/// Aho-Corasick matchers, compiled once per [`DocumentTermRegistry`] and
+/// shared across blocks. Standard match kind plus `find_overlapping_iter`
+/// reports every overlapping hit, exactly like the per-key `match_indices`
+/// scan this replaces, at one automaton pass per block instead of one scan
+/// per key. Two invariants hold:
 ///
 /// - Every hit is re-verified through [`Lexicon::lookup`], the single
 ///   source of surface attribution: a span is recorded only when the frozen
@@ -252,46 +260,80 @@ fn collect_lexicon_occurrences(
     text: &str,
     block_index: usize,
     lexicon: &Lexicon,
+    matchers: Option<&FrozenMatchers>,
     occurrences: &mut Vec<LexiconOccurrence>,
 ) {
+    // A lexicon without scan keys compiles no matchers; there is nothing
+    // to record.
+    let Some(matchers) = matchers else {
+        return;
+    };
     let lowered = text.to_ascii_lowercase();
-    let lowered = lowered.as_str();
     let mut seen_spans: HashSet<(usize, usize, usize, &str)> = HashSet::new();
-    for key in lexicon.scan_keys() {
-        let haystack = if key.folded { lowered } else { text };
-        for (start, matched) in haystack.match_indices(key.needle) {
-            let end = start + matched.len();
-            if !is_bounded_match(text, start, end) {
-                continue;
-            }
-            // Freeze policy: attribute the span only if `lookup`, the single
-            // source of ownership, resolves the *original* text (never the
-            // folded needle) to the lexeme whose key found the hit.
-            let surface = &text[start..end];
-            let Some(lexeme) = lexicon.lookup(surface) else {
-                continue;
-            };
-            if lexeme.canonical != key.canonical {
-                continue;
-            }
-            let span_key = (block_index, start, end, lexeme.canonical.as_str());
-            if !seen_spans.insert(span_key) {
-                continue;
-            }
-            occurrences.push(LexiconOccurrence {
-                surface: surface.to_string(),
-                canonical: lexeme.canonical.clone(),
-                kind: lexeme.kind,
-                source: lexeme.source,
-                case_sensitive: lexeme.case_sensitive,
-                requires_explanation: lexeme.requires_explanation,
-                location: LocatedRange {
-                    block: block_index,
-                    range: start..end,
-                },
-            });
-        }
+    for matched in matchers.exact.find_overlapping_iter(text) {
+        collect_match(
+            text,
+            block_index,
+            matched.start()..matched.end(),
+            &matchers.exact_key(&matched).canonical,
+            lexicon,
+            &mut seen_spans,
+            occurrences,
+        );
     }
+    for matched in matchers.folded.find_overlapping_iter(&lowered) {
+        collect_match(
+            text,
+            block_index,
+            matched.start()..matched.end(),
+            &matchers.folded_key(&matched).canonical,
+            lexicon,
+            &mut seen_spans,
+            occurrences,
+        );
+    }
+}
+
+fn collect_match<'a>(
+    text: &str,
+    block_index: usize,
+    range: Range<usize>,
+    expected_canonical: &str,
+    lexicon: &'a Lexicon,
+    seen_spans: &mut HashSet<(usize, usize, usize, &'a str)>,
+    occurrences: &mut Vec<LexiconOccurrence>,
+) {
+    if !is_bounded_match(text, range.start, range.end) {
+        return;
+    }
+    let surface = &text[range.clone()];
+    let Some(lexeme) = lexicon.lookup(surface) else {
+        return;
+    };
+    if lexeme.canonical != expected_canonical {
+        return;
+    }
+    let span_key = (
+        block_index,
+        range.start,
+        range.end,
+        lexeme.canonical.as_str(),
+    );
+    if !seen_spans.insert(span_key) {
+        return;
+    }
+    occurrences.push(LexiconOccurrence {
+        surface: surface.to_string(),
+        canonical: lexeme.canonical.clone(),
+        kind: lexeme.kind,
+        source: lexeme.source,
+        case_sensitive: lexeme.case_sensitive,
+        requires_explanation: lexeme.requires_explanation,
+        location: LocatedRange {
+            block: block_index,
+            range,
+        },
+    });
 }
 
 /// Reject matches glued to ASCII identifier bytes: `AIM` must not match

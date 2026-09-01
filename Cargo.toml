@@ -12,6 +12,7 @@ categories = ["command-line-utilities", "text-processing"]
 readme = "README.md"
 
 [dependencies]
+aho-corasick = "1.1.5"
 clap = { version = "4.6.6", features = ["derive"] }
 concolor = { version = "0.1.1", features = ["api", "auto"] }
 jieba-rs = "0.7.4"

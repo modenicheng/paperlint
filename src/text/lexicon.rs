@@ -21,14 +21,19 @@
 //! - When two lexemes claim the same key in the same map, the lexeme
 //!   inserted later wins: workspace entries override built-ins, and within
 //!   the workspace the last entry in config order wins.
-//! - Occurrence collection scans these frozen keys and re-verifies every
-//!   hit through [`Lexicon::lookup`] so one source span is never
-//!   attributed to two lexemes; see
-//!   [`crate::lint::context::DocumentTermRegistry`].
+//! - Occurrence collection compiles these frozen keys into Aho-Corasick
+//!   matchers once per registry and re-verifies every hit through
+//!   [`Lexicon::lookup`] so one source span is never attributed to two
+//!   lexemes; see [`crate::lint::context::DocumentTermRegistry`].
 
 use crate::config::{LexiconEntryConfig, PaperlintConfig};
+use aho_corasick::{AhoCorasick, MatchKind};
 use serde::Deserialize;
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    fmt,
+    sync::Arc,
+};
 
 /// The semantic class of a lexeme.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
@@ -118,6 +123,92 @@ pub struct Lexicon {
     exact: HashMap<String, String>,
     /// ASCII-lowercased surface key -> canonical, for case-insensitive entries.
     folded: HashMap<String, String>,
+    /// Frozen scan keys compiled into Aho-Corasick matchers for occurrence
+    /// collection; `None` when the lexicon owns no scan keys (the automaton
+    /// cannot be empty). Rebuilt by `rebuild_index` and handed to registries
+    /// as cheap `Arc` clones.
+    matchers: Option<Arc<FrozenMatchers>>,
+}
+
+/// Frozen scan keys compiled once per index rebuild into two Aho-Corasick
+/// automata: exact keys scanned over original text, folded keys scanned over
+/// ASCII-lowercased text. Pattern ids index the parallel key vectors; the
+/// exact automaton owns ids `0..exact_keys.len()`, the folded one continues
+/// after that. `MatchKind::Standard` plus `find_overlapping_iter` reports
+/// every overlapping hit, matching the per-key `match_indices` scan this
+/// replaces.
+#[derive(Clone)]
+pub(crate) struct FrozenMatchers {
+    pub(crate) exact: AhoCorasick,
+    pub(crate) folded: AhoCorasick,
+    exact_keys: Vec<ScanKeyEntry>,
+    folded_keys: Vec<ScanKeyEntry>,
+}
+
+/// One compiled scan key: the pattern and the canonical form the frozen
+/// index attributes to it.
+#[derive(Debug, Clone)]
+pub(crate) struct ScanKeyEntry {
+    pub(crate) canonical: String,
+}
+
+impl fmt::Debug for FrozenMatchers {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("FrozenMatchers")
+            .field("exact_keys", &self.exact_keys)
+            .field("folded_keys", &self.folded_keys)
+            .finish_non_exhaustive()
+    }
+}
+
+impl FrozenMatchers {
+    /// Compile the current frozen scan keys. Pattern ids are assigned in
+    /// iteration order and index the parallel key vectors.
+    fn compile(keys: Vec<ScanKey<'_>>) -> Self {
+        let split = keys.partition_point(|key| !key.folded);
+        // `Lexicon` skips this compilation entirely when both maps are
+        // empty, so `build` never sees an empty pattern list. Matching
+        // stays case-sensitive here: folded needles are already
+        // ASCII-lowercased and are scanned over ASCII-lowercased text.
+        Self {
+            exact: build_matcher(keys[..split].iter().map(|key| key.needle)),
+            folded: build_matcher(keys[split..].iter().map(|key| key.needle)),
+            exact_keys: keys[..split]
+                .iter()
+                .map(|key| ScanKeyEntry {
+                    canonical: key.canonical.to_string(),
+                })
+                .collect(),
+            folded_keys: keys[split..]
+                .iter()
+                .map(|key| ScanKeyEntry {
+                    canonical: key.canonical.to_string(),
+                })
+                .collect(),
+        }
+    }
+
+    /// The exact scan key that produced `matched`.
+    pub(crate) fn exact_key(&self, matched: &aho_corasick::Match) -> &ScanKeyEntry {
+        &self.exact_keys[matched.pattern().as_usize()]
+    }
+
+    /// The folded scan key that produced `matched`.
+    ///
+    /// Pattern IDs are local to each automaton, so folded IDs must index the
+    /// folded vector directly rather than being offset by the exact count.
+    pub(crate) fn folded_key(&self, matched: &aho_corasick::Match) -> &ScanKeyEntry {
+        &self.folded_keys[matched.pattern().as_usize()]
+    }
+}
+
+fn build_matcher<'a>(patterns: impl IntoIterator<Item = &'a str>) -> AhoCorasick {
+    // Standard match kind is required for overlapping iteration to report
+    // every hit; leftmost kinds would only report non-overlapping matches.
+    AhoCorasick::builder()
+        .match_kind(MatchKind::Standard)
+        .build(patterns)
+        .expect("scan keys are non-empty and unique map keys")
 }
 
 impl Lexicon {
@@ -235,7 +326,10 @@ impl Lexicon {
     /// Surfaces to scan for occurrence collection, derived from the frozen
     /// index: exact keys first, then folded keys. Every key already reflects
     /// the freeze policy (exact over folded, later inserts over earlier),
-    /// so scanning these keys cannot attribute one span twice.
+    /// so scanning these keys cannot attribute one span twice. This iterator
+    /// is the definition of the scan surface list and feeds
+    /// [`FrozenMatchers::compile`]; occurrence collection consumes the
+    /// compiled matchers instead of iterating keys per block.
     pub(crate) fn scan_keys(&self) -> impl Iterator<Item = ScanKey<'_>> {
         self.exact
             .iter()
@@ -251,10 +345,17 @@ impl Lexicon {
             }))
     }
 
+    /// Compiled Aho-Corasick matchers over the frozen scan keys, built once
+    /// per index rebuild; `None` when the lexicon has no scan keys.
+    pub(crate) fn matchers(&self) -> Option<Arc<FrozenMatchers>> {
+        self.matchers.clone()
+    }
+
     fn rebuild_index(&mut self) {
         self.by_canonical.clear();
         self.exact.clear();
         self.folded.clear();
+        self.matchers = None;
         for (index, lexeme) in self.lexemes.iter().enumerate() {
             self.by_canonical.insert(lexeme.canonical.clone(), index);
             for surface in std::iter::once(&lexeme.canonical).chain(&lexeme.aliases) {
@@ -271,6 +372,11 @@ impl Lexicon {
                         .insert(surface.to_ascii_lowercase(), lexeme.canonical.clone());
                 }
             }
+        }
+        if !self.exact.is_empty() || !self.folded.is_empty() {
+            self.matchers = Some(Arc::new(FrozenMatchers::compile(
+                self.scan_keys().collect(),
+            )));
         }
     }
 }

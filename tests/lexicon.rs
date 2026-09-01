@@ -616,3 +616,92 @@ fn large_workspace_lexicon_builds_and_lints_quickly() {
         "from_config + one document should be fast, took {elapsed:?}"
     );
 }
+
+// ------------------------------------------------------------------
+// Aho-Corasick matcher parity: overlap, same-span single count, empty lexicon
+// ------------------------------------------------------------------
+
+#[test]
+fn exact_and_folded_hits_on_one_span_are_counted_once() {
+    // A lowercase-spelled case-sensitive entry owns the exact key
+    // "dataset" while a case-insensitive entry folds to the same needle:
+    // both automata fire over the same span, but only the exact owner may
+    // claim it, so the span must yield exactly one occurrence.
+    let config = config_with_lexicon(
+        r#"
+[[lexicon.entries]]
+canonical = "dataset"
+kind = "term"
+case_sensitive = true
+
+[[lexicon.entries]]
+canonical = "Dataset"
+kind = "term"
+case_sensitive = false
+"#,
+    );
+    let lexicon = Lexicon::from_config(&config);
+    assert_eq!(lexicon.lookup("dataset").unwrap().canonical, "dataset");
+    assert_eq!(lexicon.lookup("Dataset").unwrap().canonical, "Dataset");
+
+    let document = document_of("The dataset grows; the Dataset stays.");
+    let registry = DocumentTermRegistry::new(&document, &lexicon);
+
+    let lower: Vec<_> = registry.lexicon_occurrences_of("dataset").collect();
+    assert_eq!(lower.len(), 1, "exact hit recorded once");
+    assert!(lower[0].case_sensitive);
+    let folded: Vec<_> = registry.lexicon_occurrences_of("Dataset").collect();
+    assert_eq!(folded.len(), 1, "folded hit on its own span");
+    assert!(!folded[0].case_sensitive);
+    assert_ne!(
+        lower[0].location.range, folded[0].location.range,
+        "one span never carries both attributions"
+    );
+}
+
+#[test]
+fn matcher_reports_nested_overlapping_spans() {
+    // "network" occurs inside "neural network" and standalone: the
+    // Aho-Corasick pass replaces per-key match_indices, so it must keep
+    // reporting overlapping hits the old scan produced.
+    let config = config_with_lexicon(
+        r#"
+[[lexicon.entries]]
+canonical = "neural network"
+kind = "term"
+
+[[lexicon.entries]]
+canonical = "network"
+kind = "term"
+"#,
+    );
+    let lexicon = Lexicon::from_config(&config);
+    let document = document_of("A neural network plus a network.");
+    let registry = DocumentTermRegistry::new(&document, &lexicon);
+
+    let neural: Vec<_> = registry.lexicon_occurrences_of("neural network").collect();
+    assert_eq!(neural.len(), 1, "outer span matched once");
+    let networks: Vec<_> = registry.lexicon_occurrences_of("network").collect();
+    assert_eq!(networks.len(), 2, "nested + standalone spans");
+    let outer = neural[0].location.range.clone();
+    let nested = networks
+        .iter()
+        .find(|occurrence| {
+            outer.start <= occurrence.location.range.start
+                && occurrence.location.range.end <= outer.end
+        })
+        .expect("nested network span inside neural network");
+    assert_ne!(nested.location.range, outer);
+}
+
+#[test]
+fn empty_lexicon_registry_yields_no_occurrences() {
+    // A lexicon without scan keys compiles no matchers; registry
+    // construction must skip collection instead of failing to build an
+    // empty automaton.
+    let lexicon = Lexicon::default();
+    assert!(lexicon.lookup("AI").is_none());
+    let document = document_of("Plain text with AI and CPU.");
+    let registry = DocumentTermRegistry::new(&document, &lexicon);
+    assert!(registry.lexicon_occurrences().is_empty());
+}
