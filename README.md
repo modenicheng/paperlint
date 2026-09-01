@@ -65,6 +65,10 @@ min_usages_after_definition = 1
 [rules.TERM001]
 level = "warning"
 
+[[lexicon.entries]]
+canonical = "GWAS"
+kind = "acronym"
+
 [rules.TERM001.replace]
 "Github" = "GitHub"
 "大型语言模型" = "大语言模型"
@@ -77,9 +81,9 @@ max_english_words = 45  # English: words
 
 ### Rules
 
-Implemented in v0.1: **ACR001** (acronym defined before use), **ACR002** (unnecessary acronym), **TERM001** (terminology consistency), **STYLE001** (long sentences, language-aware).
+Implemented: **ACR001** (acronym defined before use, lexicon-denoised), **ACR002** (unnecessary acronym), **TERM001** (terminology consistency), **TERM002** (term explanation on first use), **STYLE001** (long sentences, language-aware), **CASE001** (canonical casing via shared lexicon), **PUNC002** (CJK/Latin spacing).
 
-Planned: TERM002, FUNC001/002 (function words), STYLE002 (weak verbs), SYN001–005 (把/被字句, prepositional & connective stacking, modifier chains), PUNC001/002, dependency-gated syntax rules.
+Planned: FUNC001/002 (function words), STYLE002 (weak verbs), SYN001–005 (把/被字句, prepositional & connective stacking, modifier chains), PUNC001, dependency-gated syntax rules.
 
 Full rule reference, configuration keys, and examples: **[docs/rules.md](./docs/rules.md)**.
 
@@ -171,9 +175,9 @@ max_english_words = 45  # 英文按单词数
 
 ### 规则
 
-v0.1 已实现：**ACR001**（缩写先定义后使用）、**ACR002**（无必要缩写）、**TERM001**（术语统一）、**STYLE001**（长句，中英文分别计量）。
+已实现：**ACR001**（缩写先定义后使用，经共享词典降噪）、**ACR002**（无必要缩写）、**TERM001**（术语统一）、**TERM002**（术语首次使用需解释）、**STYLE001**（长句，中英文分别计量）、**CASE001**（已知词项大小写规范）、**PUNC002**（中英文间距）。
 
-规划中：TERM002、FUNC001/002（虚词）、STYLE002（空泛动词）、SYN001–005（把/被字句、介词与连接词堆积、超长修饰链）、PUNC001/002、依赖句法树的规则。
+规划中：FUNC001/002（虚词）、STYLE002（空泛动词）、SYN001–005（把/被字句、介词与连接词堆积、超长修饰链）、PUNC001、依赖句法树的规则。
 
 完整规则参考、配置项与示例见 **[docs/rules.md](./docs/rules.md)**。
 

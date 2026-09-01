@@ -50,7 +50,7 @@ The parser should not decide whether a term is valid or explained. It should onl
 
 ## Phase 1 — Lexicon infrastructure
 
-**Priority: next development stage**
+**Priority: ✅ delivered (minimal)** — `Lexicon`/`Lexeme`/`LexemeKind` in `src/text/lexicon.rs`; workspace config `[[lexicon.entries]]`; built-in cross-domain core; batch overlay with frozen surface ownership; Aho-Corasick occurrence scan. User-global dictionary layer deferred.
 
 Build a reusable lexicon layer shared by acronym, terminology, spelling, and future explanation rules.
 
@@ -114,7 +114,7 @@ The exact Rust representation can evolve, but rules should consume a stable sema
 
 ## Phase 2 — Document Term Registry
 
-**Priority: next development stage**
+**Priority: ✅ delivered (minimal)** — `DocumentTermRegistry` + `LintContext` in `src/lint/context.rs`; acronym definitions/usages and lexicon occurrences in reading order; shared by ACR001/002, CASE001, TERM002. Observed-capitalization tracking partially available via CASE001 token walk.
 
 Build a document-scoped symbol/term table while traversing the logical document in reading order.
 
@@ -150,7 +150,7 @@ This registry should become the common data source for:
 
 ## Phase 3 — English lexical diagnostics
 
-**Priority: next development stage**
+**Priority: ✅ delivered (minimal)** — CASE001 enforces canonical casing for lexicon-known acronyms/proper nouns/units and document declarations; unknown mixed-case words stay silent; ACR001 consumes lexicon kinds for denoising. Identifier morphology and spelling candidates deferred.
 
 Introduce English candidate classification without assuming that every unknown token is misspelled.
 
@@ -231,7 +231,7 @@ The extractor should produce scored or tagged term candidates with spans and evi
 
 ## Phase 5 — TERM002 deterministic explanation detection
 
-**Priority: medium term**
+**Priority: ✅ delivered (minimal)** — configured terms only (`requires_explanation = true`), first-occurrence inspection, Chinese/English trigger patterns, structured-declaration exemption. Evaluation corpus (Phase 7) still pending before any model work.
 
 Implement the first reliable version of "term needs explanation on first use" without a learned model.
 
@@ -414,12 +414,12 @@ or explain it at first use if readers are expected to learn the term here.
 
 | Area | Priority |
 | --- | --- |
-| Lexicon infrastructure | Next stage |
-| Document Term Registry | Next stage |
-| English acronym/case classification | Next stage |
-| Basic unknown-candidate diagnostics | Next stage |
+| Lexicon infrastructure | ✅ Delivered (minimal) |
+| Document Term Registry | ✅ Delivered (minimal) |
+| English acronym/case classification | ✅ Delivered (CASE001) |
+| Basic unknown-candidate diagnostics | Delivered via lexicon (identifier morphology pending) |
 | Chinese compound term extraction | Medium term |
-| Deterministic TERM002 | Medium term |
+| Deterministic TERM002 | ✅ Delivered (minimal) |
 | Dependency/syntax backend | Medium term |
 | Explanation evaluation dataset | Before model work |
 | Optional semantic classifier / ONNX | Long term |

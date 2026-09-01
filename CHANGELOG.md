@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Shared term lexicon (`[[lexicon.entries]]`) with a per-run `DocumentTermRegistry` and `LintContext`; all term-aware rules resolve surfaces through one lexicon instead of re-scanning (workspace overrides built-ins; `ACR001.ignore` stacks in)
+- **CASE001**: canonical casing for known acronyms, proper nouns, and units (built-in core + workspace lexicon + document declarations); TERM001 defers case-only replacements; ACR001 stays silent for surfaces CASE001 owns
+- **TERM002**: deterministic explanation-on-first-use for lexicon terms with `requires_explanation = true` (Chinese/English trigger patterns; later explanations never cancel a missing first-use one)
+- **PUNC002**: missing space between CJK and Latin/number, with source-mapping-gap skipping and configurable ignore patterns (`第\d+章`, `图\d+`, `表\d+` defaults)
+- ACR001 denoising: built-in cross-domain acronym core plus lexicon knowledge suppresses false "used before definition" reports (real-paper ACR001: 166 → 111)
+- Lexicon occurrence scanning uses Aho-Corasick matchers compiled once per run (500-entry lexicon scan ~2× faster than per-key `match_indices`)
 - Stdin input: `cat main.tex | paperlint`, omitted `INPUT`, and explicit `paperlint -` lint one in-memory LaTeX source with `<stdin>` spans; recursive includes remain available through file input
 - `rust-toolchain.toml` (stable channel + rustfmt/clippy) — Rust 2024 edition requires 1.85+; contributors no longer hit mysterious toolchain errors
 - Git hooks via lefthook: `pre-commit` (fmt + check), `commit-msg` (Conventional Commits validation via `scripts/commit-msg.sh`), `pre-push` (clippy -D warnings + tests)

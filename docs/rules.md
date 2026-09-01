@@ -73,28 +73,40 @@ warning[TERM001]:
 建议使用统一术语 `大语言模型`，而不是 `大型语言模型`
 ```
 
-### TERM002 — Term needs explanation on first use 🚧
+### TERM002 — Term needs explanation on first use ✅
 
 **Level:** `warning` (default)
 
-Heuristic check (v0.1 does not judge whether the explanation is *correct*): a configured term's first occurrence should be followed nearby by `是指 / 指的是 / 即 / 定义为 / 表示 / 指`, or by the pattern `术语（English name，ABC）`.
+Deterministic check: terms declared in `[[lexicon.entries]]` with `requires_explanation = true` must be explained near their **first** occurrence (structured declarations count as explanations; later explanations never cancel a missing first-use one). High-confidence triggers: Chinese `X是/是指/指的是/即/定义为/表示`, `所谓X`, `称X为`; English `X refers to / is defined as / denotes / stands for / (also known as ...) / , i.e., / :`.
 
 ```toml
 [rules.TERM002]
 level = "warning"
 context_chars = 100
 
-[[rules.TERM002.terms]]
-term = "检索增强生成"
-
-[[rules.TERM002.terms]]
-term = "智能体"
+[[lexicon.entries]]
+canonical = "检索增强生成"
+kind = "term"
+requires_explanation = true
 ```
 
 ```text
-warning[TERM002]:
-专业术语 `载体` 首次出现时没有明显解释
+warning[TERM002] sections/method.tex:12:8: technical term `载体` first used without a nearby explanation
 ```
+
+## Capitalization
+
+### CASE001 — Canonical casing for known terms ✅
+
+**Level:** `warning` (default)
+
+Reports case variants of canonical forms owned by the shared lexicon (built-in acronyms, proper nouns, units) or by document acronym declarations. Unknown mixed-case words stay silent; fully lowercase variants of all-uppercase acronyms (e.g. `rag` vs `RAG`) stay silent. TERM001 defers case-only replacements (e.g. `Github`→`GitHub`) to this rule.
+
+```text
+warning[CASE001] chapters/method.tex:7:12: use `PyTorch` instead of `Pytorch`
+```
+
+ACR001 also stays silent for uppercase surfaces whose case variants CASE001 owns (e.g. `PYTORCH`), so one wrong surface is never reported by both rules.
 
 ## Style
 
@@ -267,7 +279,7 @@ v0.1 backend: jieba-rs (CWS + POS), fully native Rust. The `LexicalAnalyzer` / `
 
 Detects `,`/`:`/`()` in Chinese context, with exceptions for `Large Language Model (LLM)`, `f(x)`, `printf(...)`.
 
-### PUNC002 — Spacing between CJK and Latin/numbers
+### PUNC002 — Spacing between CJK and Latin/numbers ✅
 
 `使用LLM进行推理` → suggests `使用 LLM 进行推理`, with ignore patterns:
 
@@ -275,6 +287,21 @@ Detects `,`/`:`/`()` in Chinese context, with exceptions for `Large Language Mod
 [rules.PUNC002]
 ignore_patterns = ["第\\d+章", "图\\d+", "表\\d+"]
 ```
+
+## Shared lexicon
+
+All term-aware rules (ACR001 denoising, CASE001, TERM002) resolve surfaces through one shared lexicon built per run. Workspace entries override built-ins with the same canonical form; `ACR001.ignore` acronyms stack in as known acronyms.
+
+```toml
+[[lexicon.entries]]
+canonical = "GWAS"
+kind = "acronym"          # common | term | acronym | proper_noun | unit | symbol
+aliases = []
+# case_sensitive = true    # defaults by kind
+requires_explanation = false
+```
+
+Built-in entries are a conservative cross-domain core (`PDF`, `DNA`, `HTTP`, `JSON`, `GitHub`, `PyTorch`, `TensorFlow`, `LaTeX`, `Hz`, `kHz`, …). No domain terms ship built in; declare them per project.
 
 ## LaTeX projects and configuration
 
