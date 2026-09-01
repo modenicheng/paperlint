@@ -40,6 +40,9 @@ impl DefaultConfig {
                     level: Level::Warning,
                     ignore_patterns: vec![r"第\d+章".into(), r"图\d+".into(), r"表\d+".into()],
                 },
+                case001: Case001Config {
+                    level: Level::Warning,
+                },
                 func001: Func001Config {
                     level: Level::Warning,
                     max_ratio: 0.20,

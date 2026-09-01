@@ -55,6 +55,15 @@ const fn default_style001_max_chars() -> usize {
     80
 }
 
+/// CASE001 has no knobs today; a dedicated config struct keeps the
+/// documented `[rules.CASE001]` section open to future options without a
+/// breaking config change.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Case001Config {
+    pub level: Level,
+}
+
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Punc002Config {
@@ -231,6 +240,7 @@ pub struct RulesConfig {
     pub term001: Term001Config,
     pub style001: Style001Config,
     pub punc002: Punc002Config,
+    pub case001: Case001Config,
     pub func001: Func001Config,
     pub func002: Func002Config,
     pub style002: Style002Config,
@@ -263,6 +273,8 @@ pub struct RawRulesConfig {
     pub style001: Option<RuleSetting<Style001Config>>,
     #[serde(alias = "PUNC002")]
     pub punc002: Option<RuleSetting<Punc002Config>>,
+    #[serde(alias = "CASE001")]
+    pub case001: Option<RuleSetting<Case001Config>>,
     pub func001: Option<RuleSetting<Func001Config>>,
     pub func002: Option<RuleSetting<Func002Config>>,
     pub style002: Option<RuleSetting<Style002Config>>,
@@ -311,6 +323,7 @@ impl PaperlintConfig {
             Ok(RuleId::Term001) => self.rules.term001.level = level,
             Ok(RuleId::Style001) => self.rules.style001.level = level,
             Ok(RuleId::Punc002) => self.rules.punc002.level = level,
+            Ok(RuleId::Case001) => self.rules.case001.level = level,
             Ok(RuleId::Func001) => self.rules.func001.level = level,
             Ok(RuleId::Func002) => self.rules.func002.level = level,
             Ok(RuleId::Style002) => self.rules.style002.level = level,
@@ -340,6 +353,9 @@ impl PaperlintConfig {
         }
         if let Some(rule) = raw.rules.punc002 {
             config.rules.punc002 = resolve(rule, config.rules.punc002.clone());
+        }
+        if let Some(rule) = raw.rules.case001 {
+            config.rules.case001 = resolve(rule, config.rules.case001.clone());
         }
         if let Some(rule) = raw.rules.func001 {
             config.rules.func001 = resolve(rule, config.rules.func001.clone());
@@ -421,6 +437,12 @@ impl HasLevel for Style001Config {
 }
 
 impl HasLevel for Punc002Config {
+    fn set_level(&mut self, level: Level) {
+        self.level = level;
+    }
+}
+
+impl HasLevel for Case001Config {
     fn set_level(&mut self, level: Level) {
         self.level = level;
     }

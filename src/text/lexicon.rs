@@ -212,20 +212,40 @@ fn build_matcher<'a>(patterns: impl IntoIterator<Item = &'a str>) -> AhoCorasick
 }
 
 impl Lexicon {
-    /// Built-in entries; today only the default `ACR001.ignore` acronyms so
-    /// migration keeps behavior unchanged.
+    /// Built-in entries: the legacy `ACR001.ignore` acronyms plus a core of
+    /// high-confidence acronyms, proper nouns, and units shared by semantic
+    /// rules. No domain-specific terms ship built in; workspace entries
+    /// override any of these by canonical form.
     pub(crate) fn builtin() -> Self {
-        let mut lexicon = Self::default();
-        for acronym in ["AI", "CPU", "GPU", "API"] {
-            lexicon.insert(Lexeme {
-                canonical: acronym.to_string(),
+        const ACRONYMS: &[&str] = &[
+            "AI", "CPU", "GPU", "API", "CSV", "PDF", "HTML", "XML", "JSON", "URL", "URI",
+            "HTTP", "HTTPS", "OCR", "OS", "IO", "ID", "CI", "REST", "SQL", "UTF", "ASCII",
+            "NLP", "LLM", "VLM", "CNN", "RNN", "LSTM", "GAN", "GPT", "DNA",
+        ];
+        const PROPER_NOUNS: &[&str] = &[
+            "GitHub", "PyTorch", "TensorFlow", "LaTeX", "OpenAI", "ImageNet", "MATLAB",
+        ];
+        const UNITS: &[&str] = &[
+            "Hz", "kHz", "MHz", "GHz", "dB", "KB", "MB", "GB", "TB", "ms", "ns",
+        ];
+
+        fn lexemes(canonicals: &[&str], kind: LexemeKind) -> impl Iterator<Item = Lexeme> + '_ {
+            canonicals.iter().map(move |canonical| Lexeme {
+                canonical: canonical.to_string(),
                 aliases: Vec::new(),
-                kind: LexemeKind::Acronym,
+                kind,
                 source: LexemeSource::Builtin,
-                case_sensitive: LexemeKind::Acronym.default_case_sensitive(),
+                case_sensitive: kind.default_case_sensitive(),
                 requires_explanation: false,
-            });
+            })
         }
+
+        let mut lexicon = Self::default();
+        lexicon.insert_all(
+            lexemes(ACRONYMS, LexemeKind::Acronym)
+                .chain(lexemes(PROPER_NOUNS, LexemeKind::ProperNoun))
+                .chain(lexemes(UNITS, LexemeKind::Unit)),
+        );
         lexicon
     }
 
@@ -405,8 +425,18 @@ mod tests {
             assert_eq!(found.source, LexemeSource::Builtin, "{acronym}");
             assert!(!found.requires_explanation, "{acronym}");
         }
-        assert_eq!(lexicon.entries().collect::<Vec<_>>().len(), 4);
-        assert!(lexicon.lookup("LLM").is_none());
+        // The built-in core grew beyond the legacy ignore list.
+        assert_eq!(lexicon.entries().count(), 49);
+        for (canonical, kind) in [
+            ("LLM", LexemeKind::Acronym),
+            ("GitHub", LexemeKind::ProperNoun),
+            ("Hz", LexemeKind::Unit),
+        ] {
+            let found = lexicon.lookup(canonical).expect(canonical);
+            assert_eq!(found.kind, kind, "{canonical}");
+            assert_eq!(found.source, LexemeSource::Builtin, "{canonical}");
+            assert!(found.case_sensitive, "{canonical}");
+        }
     }
 
     #[test]
@@ -471,20 +501,24 @@ mod tests {
             lexicon.lookup("AI").expect("builtin kept").source,
             LexemeSource::Builtin
         );
-        assert_eq!(lexicon.entries().count(), 5);
+        assert_eq!(
+            lexicon.entries().count(),
+            Lexicon::builtin().entries().count() + 1
+        );
     }
 
     #[test]
     fn entries_iterate_in_insertion_order() {
         let mut lexicon = Lexicon::builtin();
         lexicon.insert(lexeme("dataset", LexemeKind::Common, false));
-        lexicon.insert(lexeme("GHz", LexemeKind::Unit, true));
+        lexicon.insert(lexeme("furlong", LexemeKind::Unit, true));
 
         let canonicals: Vec<_> = lexicon
             .entries()
             .map(|lexeme| lexeme.canonical.as_str())
             .collect();
-        assert_eq!(canonicals, ["AI", "CPU", "GPU", "API", "dataset", "GHz"]);
+        assert_eq!(canonicals.first(), Some(&"AI"));
+        assert_eq!(&canonicals[canonicals.len() - 2..], &["dataset", "furlong"]);
     }
 
     #[test]
@@ -510,7 +544,11 @@ mod tests {
         assert!(found.case_sensitive);
         assert!(found.requires_explanation);
         assert!(lexicon.lookup("large language model").is_some());
-        assert_eq!(lexicon.entries().count(), 5);
+        assert_eq!(
+            lexicon.entries().count(),
+            Lexicon::builtin().entries().count(),
+            "override replaces the builtin LLM, not adds beside it"
+        );
     }
 
     #[test]
@@ -575,15 +613,12 @@ mod tests {
             ]
             .into()
         );
-        assert_eq!(
-            exact,
-            [
-                ("AI".to_string(), "AI".to_string()),
-                ("API".to_string(), "API".to_string()),
-                ("CPU".to_string(), "CPU".to_string()),
-                ("GPU".to_string(), "GPU".to_string()),
-            ]
-            .into()
-        );
+        // Builtin acronyms stay exact keys alongside the workspace entry.
+        for needle in ["AI", "API", "CPU", "GPU"] {
+            assert!(
+                exact.contains(&(needle.to_string(), needle.to_string())),
+                "missing exact key {needle}"
+            );
+        }
     }
 }

@@ -1,4 +1,4 @@
-use crate::rules::{Acr001, Acr002, Punc002, Rule, Style001, Term001};
+use crate::rules::{Acr001, Acr002, Case001, Punc002, Rule, Style001, Term001};
 
 pub struct RuleRegistry {
     rules: Vec<Box<dyn Rule>>,
@@ -12,6 +12,7 @@ impl Default for RuleRegistry {
                 Box::new(Acr002),
                 Box::new(Term001),
                 Box::new(Style001),
+                Box::new(Case001),
                 Box::new(Punc002),
             ],
         }

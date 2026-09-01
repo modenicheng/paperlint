@@ -1,11 +1,15 @@
 use crate::{
     lint::{context::LintContext, diagnostic::Diagnostic},
     rule_id::RuleId,
-    text::{Language, chars::effective_length, detect_language, segment_sentences},
+    text::{
+        Language, chars::effective_length, detect_language, lexicon::LexemeKind, segment_sentences,
+    },
 };
 
+mod case001;
 mod punc002;
 
+pub use case001::Case001;
 pub use punc002::Punc002;
 
 pub trait Rule {
@@ -29,6 +33,23 @@ impl Rule for Acr001 {
             return Vec::new();
         }
         let registry = context.registry();
+        // Denoising: an acronym the shared lexicon already knows (built-in
+        // core, workspace entries, or `ACR001.ignore`) does not need a
+        // document definition. `find_acronym_usages` yields uppercase
+        // surfaces, so a plain lookup answers whether the lexicon owns it.
+        let lexicon = context.lexicon();
+        let lexicon_known = |acronym: &str| {
+            lexicon.lookup(acronym).is_some_and(|lexeme| {
+                matches!(
+                    lexeme.kind,
+                    LexemeKind::Acronym
+                        | LexemeKind::ProperNoun
+                        | LexemeKind::Unit
+                        | LexemeKind::Symbol
+                        | LexemeKind::Common
+                )
+            })
+        };
         registry
             .usages()
             .iter()
@@ -37,6 +58,7 @@ impl Rule for Acr001 {
                 usage.acronym.len() >= rule.min_length
                     && !rule.ignore.iter().any(|value| value == &usage.acronym)
             })
+            .filter(|usage| !lexicon_known(&usage.acronym))
             .filter(|usage| {
                 registry
                     .first_definition(&usage.acronym)
@@ -106,7 +128,15 @@ impl Rule for Term001 {
             return Vec::new();
         }
         let document = context.document();
-        let mut replacements: Vec<_> = rule.replace.iter().collect();
+        // CASE001 owns case-only corrections for lexicon canonicals (e.g.
+        // `Github` -> `GitHub`); TERM001 defers to it so one wrong surface is
+        // never reported by both rules.
+        let lexicon = context.lexicon();
+        let mut replacements: Vec<_> = rule
+            .replace
+            .iter()
+            .filter(|(wrong, _)| !crate::rules::case001::lexicon_case_covered(lexicon, wrong))
+            .collect();
         replacements.sort_by(|left, right| left.0.cmp(right.0));
         let mut diagnostics = Vec::new();
         for block in &document.blocks {
