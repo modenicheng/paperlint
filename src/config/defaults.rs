@@ -36,6 +36,10 @@ impl DefaultConfig {
                     max_chars: 80,
                     max_english_words: 45,
                 },
+                punc002: Punc002Config {
+                    level: Level::Warning,
+                    ignore_patterns: vec![r"第\d+章".into(), r"图\d+".into(), r"表\d+".into()],
+                },
                 func001: Func001Config {
                     level: Level::Warning,
                     max_ratio: 0.20,

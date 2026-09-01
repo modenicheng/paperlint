@@ -15,10 +15,11 @@ pub enum RuleId {
     Syn003,
     Syn004,
     Syn005,
+    Punc002,
 }
 
 impl RuleId {
-    pub const ALL: [Self; 12] = [
+    pub const ALL: [Self; 13] = [
         Self::Acr001,
         Self::Acr002,
         Self::Term001,
@@ -31,6 +32,7 @@ impl RuleId {
         Self::Syn003,
         Self::Syn004,
         Self::Syn005,
+        Self::Punc002,
     ];
 
     pub const fn as_str(self) -> &'static str {
@@ -47,6 +49,7 @@ impl RuleId {
             Self::Syn003 => "SYN003",
             Self::Syn004 => "SYN004",
             Self::Syn005 => "SYN005",
+            Self::Punc002 => "PUNC002",
         }
     }
 }
@@ -74,6 +77,7 @@ impl FromStr for RuleId {
             "SYN003" => Ok(Self::Syn003),
             "SYN004" => Ok(Self::Syn004),
             "SYN005" => Ok(Self::Syn005),
+            "PUNC002" => Ok(Self::Punc002),
             _ => Err(ParseRuleIdError {
                 value: value.to_string(),
             }),

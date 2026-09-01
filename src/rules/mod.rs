@@ -4,6 +4,10 @@ use crate::{
     text::{Language, chars::effective_length, detect_language, segment_sentences},
 };
 
+mod punc002;
+
+pub use punc002::Punc002;
+
 pub trait Rule {
     fn id(&self) -> RuleId;
     fn check(&self, context: &LintContext) -> Vec<Diagnostic>;

@@ -57,6 +57,14 @@ const fn default_style001_max_chars() -> usize {
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct Punc002Config {
+    pub level: Level,
+    #[serde(default)]
+    pub ignore_patterns: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Func001Config {
     pub level: Level,
     pub max_ratio: f32,
@@ -176,6 +184,7 @@ pub struct RulesConfig {
     pub acr002: Acr002Config,
     pub term001: Term001Config,
     pub style001: Style001Config,
+    pub punc002: Punc002Config,
     pub func001: Func001Config,
     pub func002: Func002Config,
     pub style002: Style002Config,
@@ -206,6 +215,8 @@ pub struct RawRulesConfig {
     pub term001: Option<RuleSetting<Term001Config>>,
     #[serde(alias = "STYLE001")]
     pub style001: Option<RuleSetting<Style001Config>>,
+    #[serde(alias = "PUNC002")]
+    pub punc002: Option<RuleSetting<Punc002Config>>,
     pub func001: Option<RuleSetting<Func001Config>>,
     pub func002: Option<RuleSetting<Func002Config>>,
     pub style002: Option<RuleSetting<Style002Config>>,
@@ -253,6 +264,7 @@ impl PaperlintConfig {
             Ok(RuleId::Acr002) => self.rules.acr002.level = level,
             Ok(RuleId::Term001) => self.rules.term001.level = level,
             Ok(RuleId::Style001) => self.rules.style001.level = level,
+            Ok(RuleId::Punc002) => self.rules.punc002.level = level,
             Ok(RuleId::Func001) => self.rules.func001.level = level,
             Ok(RuleId::Func002) => self.rules.func002.level = level,
             Ok(RuleId::Style002) => self.rules.style002.level = level,
@@ -279,6 +291,9 @@ impl PaperlintConfig {
         }
         if let Some(rule) = raw.rules.style001 {
             config.rules.style001 = resolve(rule, config.rules.style001.clone());
+        }
+        if let Some(rule) = raw.rules.punc002 {
+            config.rules.punc002 = resolve(rule, config.rules.punc002.clone());
         }
         if let Some(rule) = raw.rules.func001 {
             config.rules.func001 = resolve(rule, config.rules.func001.clone());
@@ -354,6 +369,12 @@ impl HasLevel for Term001Config {
 }
 
 impl HasLevel for Style001Config {
+    fn set_level(&mut self, level: Level) {
+        self.level = level;
+    }
+}
+
+impl HasLevel for Punc002Config {
     fn set_level(&mut self, level: Level) {
         self.level = level;
     }
