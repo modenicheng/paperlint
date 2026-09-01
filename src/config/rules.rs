@@ -134,18 +134,64 @@ pub struct Syn005Config {
 }
 
 /// One `[[lexicon.entries]]` workspace entry.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[serde(deny_unknown_fields)]
+///
+/// Surfaces are trimmed while deserializing, and empty or whitespace-only
+/// canonical forms or aliases are rejected as configuration errors: an
+/// empty surface would otherwise match at every position during occurrence
+/// collection.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LexiconEntryConfig {
     pub canonical: String,
-    #[serde(default)]
     pub aliases: Vec<String>,
     pub kind: LexemeKind,
     /// Defaults to the sensible value for `kind` when omitted.
-    #[serde(default)]
     pub case_sensitive: Option<bool>,
-    #[serde(default)]
     pub requires_explanation: bool,
+}
+
+impl<'de> Deserialize<'de> for LexiconEntryConfig {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Raw {
+            canonical: String,
+            #[serde(default)]
+            aliases: Vec<String>,
+            kind: LexemeKind,
+            #[serde(default)]
+            case_sensitive: Option<bool>,
+            #[serde(default)]
+            requires_explanation: bool,
+        }
+
+        let raw = Raw::deserialize(deserializer)?;
+        let canonical = raw.canonical.trim().to_string();
+        if canonical.is_empty() {
+            return Err(serde::de::Error::custom(
+                "lexicon.entries: `canonical` must not be empty or whitespace",
+            ));
+        }
+        let mut aliases = Vec::with_capacity(raw.aliases.len());
+        for alias in raw.aliases {
+            let alias = alias.trim().to_string();
+            if alias.is_empty() {
+                return Err(serde::de::Error::custom(
+                    "lexicon.entries: `aliases` must not contain empty or whitespace entries",
+                ));
+            }
+            aliases.push(alias);
+        }
+        Ok(Self {
+            canonical,
+            aliases,
+            kind: raw.kind,
+            case_sensitive: raw.case_sensitive,
+            requires_explanation: raw.requires_explanation,
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]

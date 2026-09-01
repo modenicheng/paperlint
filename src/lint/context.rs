@@ -14,7 +14,10 @@ use crate::{
         terminology::{extract_acronym_definitions, find_acronym_usages},
     },
 };
-use std::{collections::HashMap, ops::Range};
+use std::{
+    collections::{HashMap, HashSet},
+    ops::Range,
+};
 
 /// A position in the document's reading order: block index plus byte offset
 /// inside that block's logical text.
@@ -68,6 +71,10 @@ pub struct LexiconOccurrence {
     pub canonical: String,
     pub kind: LexemeKind,
     pub source: LexemeSource,
+    /// Whether the lexeme matched this surface with case sensitivity.
+    pub case_sensitive: bool,
+    /// Whether the lexeme marks terms that must be explained on first use.
+    pub requires_explanation: bool,
     pub location: LocatedRange,
 }
 
@@ -140,7 +147,7 @@ impl DocumentTermRegistry {
                 .then(left.location.range.end.cmp(&right.location.range.end))
                 .then(left.canonical.cmp(&right.canonical))
         });
-        let mut first_lexicon_occurrences = HashMap::new();
+        let mut first_lexicon_occurrences: HashMap<String, usize> = HashMap::new();
         for (index, occurrence) in lexicon_occurrences.iter().enumerate() {
             first_lexicon_occurrences
                 .entry(occurrence.canonical.clone())
@@ -230,6 +237,17 @@ impl DocumentTermRegistry {
     }
 }
 
+/// Collect lexicon occurrences for one block. Two invariants hold:
+///
+/// - Every hit is re-verified through [`Lexicon::lookup`], the single
+///   source of surface attribution: a span is recorded only when the frozen
+///   index still resolves the matched surface to the lexeme whose key found
+///   it. Two lexemes can therefore never both claim the same span, even when
+///   an alias equals another entry's canonical form or a folded key is
+///   contested.
+/// - Occurrences are deduplicated on `(block, start, end, canonical)` so a
+///   surface equal to its own alias is counted once; distinct spans may
+///   still nest, e.g. "neural network" inside "neural networks".
 fn collect_lexicon_occurrences(
     text: &str,
     block_index: usize,
@@ -237,57 +255,55 @@ fn collect_lexicon_occurrences(
     occurrences: &mut Vec<LexiconOccurrence>,
 ) {
     let lowered = text.to_ascii_lowercase();
-    for lexeme in lexicon.entries() {
-        for surface in std::iter::once(lexeme.canonical.as_str())
-            .chain(lexeme.aliases.iter().map(String::as_str))
-        {
-            if lexeme.case_sensitive {
-                for (start, matched) in text.match_indices(surface) {
-                    if is_bounded_match(text, start, start + matched.len()) {
-                        occurrences.push(occurrence(matched, lexeme, block_index, start));
-                    }
-                }
-            } else {
-                let needle = surface.to_ascii_lowercase();
-                for (start, matched) in lowered.match_indices(&needle) {
-                    if is_bounded_match(text, start, start + matched.len()) {
-                        occurrences.push(occurrence(
-                            &text[start..start + matched.len()],
-                            lexeme,
-                            block_index,
-                            start,
-                        ));
-                    }
-                }
+    let lowered = lowered.as_str();
+    let mut seen_spans: HashSet<(usize, usize, usize, &str)> = HashSet::new();
+    for key in lexicon.scan_keys() {
+        let haystack = if key.folded { lowered } else { text };
+        for (start, matched) in haystack.match_indices(key.needle) {
+            let end = start + matched.len();
+            if !is_bounded_match(text, start, end) {
+                continue;
             }
+            // Freeze policy: attribute the span only if `lookup`, the single
+            // source of ownership, resolves the *original* text (never the
+            // folded needle) to the lexeme whose key found the hit.
+            let surface = &text[start..end];
+            let Some(lexeme) = lexicon.lookup(surface) else {
+                continue;
+            };
+            if lexeme.canonical != key.canonical {
+                continue;
+            }
+            let span_key = (block_index, start, end, lexeme.canonical.as_str());
+            if !seen_spans.insert(span_key) {
+                continue;
+            }
+            occurrences.push(LexiconOccurrence {
+                surface: surface.to_string(),
+                canonical: lexeme.canonical.clone(),
+                kind: lexeme.kind,
+                source: lexeme.source,
+                case_sensitive: lexeme.case_sensitive,
+                requires_explanation: lexeme.requires_explanation,
+                location: LocatedRange {
+                    block: block_index,
+                    range: start..end,
+                },
+            });
         }
     }
 }
 
-fn occurrence(
-    surface: &str,
-    lexeme: &crate::text::lexicon::Lexeme,
-    block_index: usize,
-    start: usize,
-) -> LexiconOccurrence {
-    LexiconOccurrence {
-        surface: surface.to_string(),
-        canonical: lexeme.canonical.clone(),
-        kind: lexeme.kind,
-        source: lexeme.source,
-        location: LocatedRange {
-            block: block_index,
-            range: start..start + surface.len(),
-        },
-    }
-}
-
-/// Reject matches glued to ASCII alphanumerics (`AIM` must not match `AI`).
-/// Non-ASCII neighbors never block a match, so CJK surfaces match freely.
+/// Reject matches glued to ASCII identifier bytes: `AIM` must not match
+/// `AI`, and `FOO_CNN_BAR` must not match `CNN`. Underscore counts as an
+/// identifier byte because it keeps ASCII identifiers together, while
+/// non-ASCII neighbors never block a match, so CJK surfaces match freely
+/// (e.g. `基于CNN的` still matches `CNN`).
 fn is_bounded_match(text: &str, start: usize, end: usize) -> bool {
     let bytes = text.as_bytes();
-    let before_ok = start == 0 || !bytes[start - 1].is_ascii_alphanumeric();
-    let after_ok = end >= bytes.len() || !bytes[end].is_ascii_alphanumeric();
+    let identifier_byte = |byte: u8| byte.is_ascii_alphanumeric() || byte == b'_';
+    let before_ok = start == 0 || !identifier_byte(bytes[start - 1]);
+    let after_ok = end >= bytes.len() || !identifier_byte(bytes[end]);
     before_ok && after_ok
 }
 

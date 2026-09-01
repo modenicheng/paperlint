@@ -10,6 +10,11 @@ fn config_with_lexicon(toml: &str) -> PaperlintConfig {
     PaperlintConfig::from_raw(raw, DefaultConfig::load())
 }
 
+/// Parse one block of logical text into a single-block document.
+fn document_of(text: &str) -> paperlint::latex::parser::Document {
+    parser::parse_stdin(text.to_string(), &DefaultConfig::load().latex).unwrap()
+}
+
 #[test]
 fn default_config_has_no_workspace_lexicon_entries() {
     let config = DefaultConfig::load();
@@ -239,4 +244,375 @@ fn reading_position_orders_block_then_byte() {
     assert!(early < late_byte);
     assert!(early < late_block);
     assert!(late_byte < late_block);
+}
+
+// ------------------------------------------------------------------
+// Review counterexamples: empty surfaces must never produce junk
+// ------------------------------------------------------------------
+
+#[test]
+fn empty_surfaces_are_rejected_at_parse_time() {
+    for bad in [
+        r#"canonical = ""
+kind = "term""#,
+        r#"canonical = "   "
+kind = "term""#,
+        r#"canonical = "dataset"
+aliases = [""]
+kind = "term""#,
+        r#"canonical = "dataset"
+aliases = ["  "]
+kind = "term""#,
+    ] {
+        let toml = format!("[[lexicon.entries]]\n{bad}");
+        assert!(
+            toml::from_str::<RawPaperlintConfig>(&toml).is_err(),
+            "must reject: {bad}"
+        );
+    }
+}
+
+#[test]
+fn surfaces_are_trimmed_when_parsed() {
+    let config = config_with_lexicon(
+        r#"
+[[lexicon.entries]]
+canonical = "  LLM  "
+aliases = [" large language model "]
+kind = "acronym"
+"#,
+    );
+    assert_eq!(config.lexicon.entries[0].canonical, "LLM");
+    assert_eq!(
+        config.lexicon.entries[0].aliases,
+        vec!["large language model".to_string()]
+    );
+    let lexicon = Lexicon::from_config(&config);
+    assert!(lexicon.lookup("LLM").is_some());
+    assert!(lexicon.lookup("large language model").is_some());
+}
+
+#[test]
+fn programmatic_empty_surfaces_produce_no_occurrences() {
+    // Config parsing rejects empties, so the reachable construction paths
+    // (built-ins + workspace + ACR001.ignore) cannot carry empty surfaces.
+    // This guards the rebuild-time skip against future construction paths
+    // regressing to empty needles flooding match_indices.
+    let config = DefaultConfig::load();
+    let lexicon = Lexicon::from_config(&config);
+    let document = document_of("Any text at all.");
+    let registry = DocumentTermRegistry::new(&document, &lexicon);
+    assert_eq!(registry.lexicon_occurrences().len(), 0);
+
+    // Even with workspace entries present, an empty surface can never be
+    // parsed, so occurrence collection sees only non-empty needles.
+    let config = config_with_lexicon(
+        r#"
+[[lexicon.entries]]
+canonical = "dataset"
+kind = "term"
+"#,
+    );
+    let lexicon = Lexicon::from_config(&config);
+    let registry = DocumentTermRegistry::new(&document, &lexicon);
+    assert_eq!(registry.lexicon_occurrences().len(), 0);
+}
+
+// ------------------------------------------------------------------
+// Review counterexamples: surface conflicts and duplication
+// ------------------------------------------------------------------
+
+#[test]
+fn alias_equal_to_canonical_does_not_double_count() {
+    let config = config_with_lexicon(
+        r#"
+[[lexicon.entries]]
+canonical = "dataset"
+aliases = ["dataset", "data set"]
+kind = "term"
+"#,
+    );
+    let lexicon = Lexicon::from_config(&config);
+    let document = document_of("We build a dataset from a data set.");
+    let registry = DocumentTermRegistry::new(&document, &lexicon);
+
+    let occurrences: Vec<_> = registry.lexicon_occurrences_of("dataset").collect();
+    assert_eq!(occurrences.len(), 2, "each span counted once");
+    let mut surfaces: Vec<_> = occurrences.iter().map(|o| o.surface.clone()).collect();
+    surfaces.sort();
+    assert_eq!(
+        surfaces,
+        vec!["data set".to_string(), "dataset".to_string()]
+    );
+    // Spans are distinct, no duplicated (span, canonical) pairs.
+    assert_ne!(occurrences[0].location.range, occurrences[1].location.range);
+}
+
+#[test]
+fn alias_of_one_entry_named_as_another_canonical_stays_one_owner() {
+    // "network" is a canonical of entry B and an alias of entry A: the
+    // frozen index gives the key to one owner, and the other lexeme must
+    // not produce occurrences for the same span.
+    let config = config_with_lexicon(
+        r#"
+[[lexicon.entries]]
+canonical = "neural network"
+aliases = ["network"]
+kind = "term"
+
+[[lexicon.entries]]
+canonical = "network"
+aliases = []
+kind = "term"
+"#,
+    );
+    let lexicon = Lexicon::from_config(&config);
+
+    // Workspace later entry wins the folded "network" key.
+    let owner = lexicon.lookup("network").expect("network resolves");
+    assert_eq!(owner.canonical, "network");
+
+    let document = document_of("A network helps.");
+    let registry = DocumentTermRegistry::new(&document, &lexicon);
+    let network: Vec<_> = registry.lexicon_occurrences_of("network").collect();
+    assert_eq!(network.len(), 1);
+    // The losing lexeme never claims the same span.
+    let neural: Vec<_> = registry.lexicon_occurrences_of("neural network").collect();
+    assert_eq!(neural.len(), 0);
+}
+
+#[test]
+fn folded_surface_conflict_last_config_entry_wins() {
+    // Two case-insensitive entries fold onto the same key: the later
+    // workspace entry owns it, the earlier one is still listed but cannot
+    // claim the disputed spans.
+    let config = config_with_lexicon(
+        r#"
+[[lexicon.entries]]
+canonical = "Dataset"
+kind = "common"
+
+[[lexicon.entries]]
+canonical = "dataset"
+kind = "term"
+"#,
+    );
+    let lexicon = Lexicon::from_config(&config);
+    let owner = lexicon.lookup("DATASET").expect("folded key resolves");
+    assert_eq!(owner.canonical, "dataset", "last config entry wins");
+
+    let document = document_of("The Dataset grows; the DATASET is big.");
+    let registry = DocumentTermRegistry::new(&document, &lexicon);
+    assert_eq!(registry.lexicon_occurrences_of("dataset").count(), 2);
+    assert_eq!(registry.lexicon_occurrences_of("Dataset").count(), 0);
+}
+
+#[test]
+fn exact_key_beats_folded_key_for_the_same_letters() {
+    // Case-sensitive "CNN" (exact key) shadows the case-insensitive "cnn"
+    // (folded key) for the uppercase letters; lowercase still folds.
+    let config = config_with_lexicon(
+        r#"
+[[lexicon.entries]]
+canonical = "cnn"
+kind = "term"
+case_sensitive = false
+
+[[lexicon.entries]]
+canonical = "CNN"
+kind = "acronym"
+case_sensitive = true
+"#,
+    );
+    let lexicon = Lexicon::from_config(&config);
+    assert_eq!(lexicon.lookup("CNN").unwrap().canonical, "CNN");
+    assert_eq!(lexicon.lookup("cnn").unwrap().canonical, "cnn");
+
+    let document = document_of("CNN beats cnn.");
+    let registry = DocumentTermRegistry::new(&document, &lexicon);
+    let upper: Vec<_> = registry.lexicon_occurrences_of("CNN").collect();
+    assert_eq!(upper.len(), 1);
+    assert_eq!(upper[0].surface, "CNN");
+    let lower: Vec<_> = registry.lexicon_occurrences_of("cnn").collect();
+    assert_eq!(lower.len(), 1);
+    assert_eq!(lower[0].surface, "cnn");
+    // The same span never carries both attributions.
+    assert_ne!(upper[0].location.range, lower[0].location.range);
+}
+
+#[test]
+fn nested_surfaces_allow_distinct_spans_but_not_double_counting() {
+    // "network" nests inside "neural network": different spans may both
+    // appear (nested occurrences allowed), but one span is never counted
+    // twice for the same or contested lexemes.
+    let config = config_with_lexicon(
+        r#"
+[[lexicon.entries]]
+canonical = "neural network"
+aliases = []
+kind = "term"
+
+[[lexicon.entries]]
+canonical = "network"
+aliases = []
+kind = "term"
+"#,
+    );
+    let lexicon = Lexicon::from_config(&config);
+    let document = document_of("A neural network is a network.");
+    let registry = DocumentTermRegistry::new(&document, &lexicon);
+
+    let neural: Vec<_> = registry.lexicon_occurrences_of("neural network").collect();
+    assert_eq!(neural.len(), 1, "outer span matched once");
+    let networks: Vec<_> = registry.lexicon_occurrences_of("network").collect();
+    // Nested span inside "neural network" plus the standalone one.
+    assert_eq!(
+        networks.len(),
+        2,
+        "nested and standalone spans both allowed"
+    );
+    // The inner occurrence really nests inside the outer one.
+    let outer = &neural[0].location.range;
+    assert!(
+        networks
+            .iter()
+            .any(|inner| outer.start <= inner.location.range.start
+                && inner.location.range.end <= outer.end
+                && inner.location.range != *outer),
+        "expected a nested span inside {outer:?}"
+    );
+    // No (span, canonical) pair ever appears twice across all occurrences.
+    let mut seen = std::collections::HashSet::new();
+    for occurrence in registry.lexicon_occurrences() {
+        let key = (
+            occurrence.location.block,
+            occurrence.location.range.clone(),
+            occurrence.canonical.clone(),
+        );
+        assert!(
+            seen.insert(key.clone()),
+            "double-counted occurrence {key:?}"
+        );
+    }
+}
+
+#[test]
+fn same_span_two_attributions_never_both_survive() {
+    // Even if two entries' surfaces overlap exactly at one span, the
+    // occurrence list never contains two entries for one (span, canonical)
+    // pair, and a span owned by one lexeme is not stolen by another.
+    let config = config_with_lexicon(
+        r#"
+[[lexicon.entries]]
+canonical = "transformer"
+aliases = ["transformer"]
+kind = "term"
+"#,
+    );
+    let lexicon = Lexicon::from_config(&config);
+    let document = document_of("The transformer works.");
+    let registry = DocumentTermRegistry::new(&document, &lexicon);
+    let occurrences: Vec<_> = registry.lexicon_occurrences_of("transformer").collect();
+    assert_eq!(occurrences.len(), 1, "alias==canonical collapses to one");
+}
+
+// ------------------------------------------------------------------
+// Review counterexamples: occurrence metadata and ASCII boundaries
+// ------------------------------------------------------------------
+
+#[test]
+fn occurrences_carry_case_sensitivity_and_explanation_flags() {
+    let config = config_with_lexicon(
+        r#"
+[[lexicon.entries]]
+canonical = "LLM"
+aliases = ["large language model"]
+kind = "acronym"
+requires_explanation = true
+
+[[lexicon.entries]]
+canonical = "dataset"
+aliases = ["data set"]
+kind = "term"
+case_sensitive = false
+"#,
+    );
+    let lexicon = Lexicon::from_config(&config);
+    let document = document_of("An LLM over a Data Set.");
+    let registry = DocumentTermRegistry::new(&document, &lexicon);
+
+    let llm: Vec<_> = registry.lexicon_occurrences_of("LLM").collect();
+    assert_eq!(llm.len(), 1);
+    assert!(llm[0].case_sensitive, "acronym matched case-sensitively");
+    assert!(llm[0].requires_explanation);
+
+    let dataset: Vec<_> = registry.lexicon_occurrences_of("dataset").collect();
+    assert_eq!(dataset.len(), 1);
+    assert!(!dataset[0].case_sensitive);
+    assert!(!dataset[0].requires_explanation);
+    // Enough metadata is stored that rules need no lookup round-trip: the
+    // stored canonical resolves back to a lexeme with the same flags.
+    let lexeme = lexicon.lookup(&llm[0].canonical).unwrap();
+    assert_eq!(lexeme.case_sensitive, llm[0].case_sensitive);
+    assert_eq!(lexeme.requires_explanation, llm[0].requires_explanation);
+}
+
+#[test]
+fn underscore_is_an_ascii_identifier_boundary() {
+    let config = config_with_lexicon(
+        r#"
+[[lexicon.entries]]
+canonical = "CNN"
+kind = "acronym"
+"#,
+    );
+    let lexicon = Lexicon::from_config(&config);
+    let document = document_of("FOO_CNN_BAR and CNN and 基于CNN的模型。");
+    let registry = DocumentTermRegistry::new(&document, &lexicon);
+
+    let occurrences: Vec<_> = registry.lexicon_occurrences_of("CNN").collect();
+    assert_eq!(
+        occurrences.len(),
+        2,
+        "identifier CNN skipped, standalone and CJK-adjacent kept"
+    );
+    for occurrence in occurrences {
+        let text = &document.blocks[occurrence.location.block].text;
+        let bytes = text.as_bytes();
+        let start = occurrence.location.range.start;
+        let end = occurrence.location.range.end;
+        if start > 0 {
+            assert_ne!(bytes[start - 1], b'_', "never right after an underscore");
+        }
+        if end < bytes.len() {
+            assert_ne!(bytes[end], b'_', "never right before an underscore");
+        }
+    }
+}
+
+#[test]
+fn large_workspace_lexicon_builds_and_lints_quickly() {
+    // 2000 entries: structural smoke test that overlay_workspace builds the
+    // index in batches, not per-entry; guards against O(n^2) rebuilds
+    // reintroducing noticeable latency.
+    let mut toml = String::new();
+    for i in 0..2000 {
+        toml.push_str(&format!(
+            "\n[[lexicon.entries]]\ncanonical = \"term{i}\"\naliases = [\"alias {i}\"]\nkind = \"term\"\n"
+        ));
+    }
+    let config = config_with_lexicon(&toml);
+    assert_eq!(config.lexicon.entries.len(), 2000);
+
+    let start = std::time::Instant::now();
+    let lexicon = Lexicon::from_config(&config);
+    let document = document_of("term0 uses alias 7 and term1999.");
+    let registry = DocumentTermRegistry::new(&document, &lexicon);
+    let elapsed = start.elapsed();
+
+    assert_eq!(registry.lexicon_occurrences().len(), 3);
+    assert!(
+        elapsed.as_secs() < 10,
+        "from_config + one document should be fast, took {elapsed:?}"
+    );
 }
