@@ -218,18 +218,27 @@ impl Lexicon {
     /// override any of these by canonical form.
     pub(crate) fn builtin() -> Self {
         const ACRONYMS: &[&str] = &[
-            "AI", "CPU", "GPU", "API", "CSV", "PDF", "HTML", "XML", "JSON", "URL", "URI",
-            "HTTP", "HTTPS", "OCR", "OS", "IO", "ID", "CI", "REST", "SQL", "UTF", "ASCII",
-            "NLP", "LLM", "VLM", "CNN", "RNN", "LSTM", "GAN", "GPT", "DNA",
+            "AI", "CPU", "GPU", "API", "CSV", "PDF", "HTML", "XML", "JSON", "URL", "URI", "HTTP",
+            "HTTPS", "OCR", "OS", "IO", "ID", "CI", "REST", "SQL", "UTF", "ASCII", "NLP", "LLM",
+            "VLM", "CNN", "RNN", "LSTM", "GAN", "GPT", "DNA",
         ];
         const PROPER_NOUNS: &[&str] = &[
-            "GitHub", "PyTorch", "TensorFlow", "LaTeX", "OpenAI", "ImageNet", "MATLAB",
+            "GitHub",
+            "PyTorch",
+            "TensorFlow",
+            "LaTeX",
+            "OpenAI",
+            "ImageNet",
+            "MATLAB",
         ];
         const UNITS: &[&str] = &[
             "Hz", "kHz", "MHz", "GHz", "dB", "KB", "MB", "GB", "TB", "ms", "ns",
         ];
 
-        fn lexemes(canonicals: &[&str], kind: LexemeKind) -> impl Iterator<Item = Lexeme> + '_ {
+        fn lexemes<'a>(
+            canonicals: &'a [&'a str],
+            kind: LexemeKind,
+        ) -> impl Iterator<Item = Lexeme> + 'a {
             canonicals.iter().map(move |canonical| Lexeme {
                 canonical: canonical.to_string(),
                 aliases: Vec::new(),
@@ -270,6 +279,7 @@ impl Lexicon {
 
     /// Insert one lexeme, replacing any existing lexeme with the same
     /// canonical form.
+    #[cfg(test)]
     pub(crate) fn insert(&mut self, lexeme: Lexeme) {
         self.insert_all([lexeme]);
     }

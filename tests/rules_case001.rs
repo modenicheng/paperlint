@@ -34,10 +34,7 @@ fn acr_config() -> PaperlintConfig {
     config
 }
 
-fn lint(
-    source: &str,
-    configure: impl FnOnce(&mut PaperlintConfig),
-) -> (Document, Vec<Diagnostic>) {
+fn lint(source: &str, configure: impl FnOnce(&mut PaperlintConfig)) -> (Document, Vec<Diagnostic>) {
     let dir = tempdir().unwrap();
     let main = dir.path().join("main.tex");
     write(&main, source);
@@ -138,8 +135,7 @@ fn case001_reports_wrong_cased_builtin_proper_nouns_and_units() {
     );
     let github = &diagnostics[0];
     assert_eq!(
-        github.message,
-        "use `GitHub` instead of `Github`",
+        github.message, "use `GitHub` instead of `Github`",
         "{}",
         github.message
     );
@@ -186,16 +182,22 @@ fn case001_reports_exact_source_span_inside_cjk_text() {
     assert_eq!(diagnostics.len(), 1);
     assert_eq!(span_text(&document, &diagnostics[0]), "Github");
     let source = document.source(&diagnostics[0].span.file).unwrap();
-    assert_eq!(diagnostics[0].span.start, source.text.find("Github").unwrap());
+    assert_eq!(
+        diagnostics[0].span.start,
+        source.text.find("Github").unwrap()
+    );
     assert_eq!(diagnostics[0].span.end, diagnostics[0].span.start + 6);
 }
 
 #[test]
 fn term001_defers_case_only_replacement_to_case001() {
-    let (_, diagnostics) = lint("使用Github作为术语。data set仍由TERM001处理。", |config| {
-        config.rules.term001.level = Level::Warning;
-        config.rules.case001.level = Level::Warning;
-    });
+    let (_, diagnostics) = lint(
+        "使用Github作为术语。data set仍由TERM001处理。",
+        |config| {
+            config.rules.term001.level = Level::Warning;
+            config.rules.case001.level = Level::Warning;
+        },
+    );
     assert_eq!(diagnostics.len(), 2, "{diagnostics:?}");
     let github_reports: Vec<&Diagnostic> = diagnostics
         .iter()

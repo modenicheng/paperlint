@@ -66,7 +66,7 @@ fn stdin_defaults_to_human_single_file_linting() {
         0,
     );
 
-    assert!(output.contains("warning[TERM001] <stdin>:1:"));
+    assert!(output.contains("warning[CASE001] <stdin>:1:"));
     assert!(output.contains("use `GitHub` instead of `Github`"));
     assert!(!output.contains("No problems found"));
 }
@@ -91,7 +91,7 @@ fn explicit_dash_accepts_json_stdin_and_uses_virtual_source_span() {
     let output = stdin_stdout(command, "前文。Github 后文。\n", 0);
     let diagnostics: Value = serde_json::from_str(&output).expect("valid diagnostic JSON");
     let diagnostic = &diagnostics.as_array().expect("JSON array")[0];
-    assert_eq!(diagnostic["rule"], "TERM001");
+    assert_eq!(diagnostic["rule"], "CASE001");
     assert_eq!(diagnostic["span"]["file"], "<stdin>");
     assert_eq!(diagnostic["span"]["line"], 1);
     assert_eq!(diagnostic["span"]["column"], 4);
@@ -126,7 +126,7 @@ fn human_main_reports_included_chinese_source_and_warning_exits_zero() {
         0,
     );
 
-    assert!(output.contains("warning[TERM001] chapters/child.tex:1:"));
+    assert!(output.contains("warning[CASE001] chapters/child.tex:1:"));
     assert!(output.contains("use `GitHub` instead of `Github`"));
     assert!(output.contains("chapters/child.tex:1:"));
     assert!(output.contains("这里使用 Github 作为需要统一的术语。"));
@@ -149,7 +149,7 @@ fn json_main_reports_child_file_byte_span_without_ansi() {
     let diagnostics = diagnostics.as_array().expect("JSON array");
     assert_eq!(diagnostics.len(), 1);
     let diagnostic = &diagnostics[0];
-    assert_eq!(diagnostic["rule"], "TERM001");
+    assert_eq!(diagnostic["rule"], "CASE001");
     assert_eq!(diagnostic["severity"], "warning");
     assert_eq!(
         diagnostic["span"]["file"],
@@ -187,7 +187,7 @@ fn human_and_legacy_text_formats_are_both_accepted() {
     );
 
     assert_eq!(human, text);
-    assert!(human.contains("warning[TERM001]"));
+    assert!(human.contains("warning[CASE001]"));
 }
 
 #[test]
@@ -307,14 +307,14 @@ fn multiple_findings_have_deterministic_human_and_json_order() {
                 "a-first.tex".to_string(),
                 13,
                 19,
-                "TERM001".to_string(),
+                "CASE001".to_string(),
                 "use `GitHub` instead of `Github`".to_string()
             ),
             (
                 "z-last.tex".to_string(),
                 0,
                 6,
-                "TERM001".to_string(),
+                "CASE001".to_string(),
                 "use `GitHub` instead of `Github`".to_string()
             ),
         ]

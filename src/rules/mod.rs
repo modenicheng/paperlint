@@ -50,7 +50,7 @@ impl Rule for Acr001 {
                         | LexemeKind::Symbol
                         | LexemeKind::Common
                 )
-            })
+            }) || crate::rules::case001::lexicon_case_covered(lexicon, acronym)
         };
         registry
             .usages()

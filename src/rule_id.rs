@@ -21,7 +21,7 @@ pub enum RuleId {
 }
 
 impl RuleId {
-    pub const ALL: [Self; 14] = [
+    pub const ALL: [Self; 15] = [
         Self::Acr001,
         Self::Acr002,
         Self::Term001,

@@ -132,9 +132,9 @@ fn acr001_reports_only_uses_before_a_cross_file_definition() {
     let definition = dir.path().join("definition.tex");
     let after = dir.path().join("after.tex");
     write(&main, "\\input{before}\\input{definition}\\input{after}");
-    write(&before, "LLM appears before its definition.");
-    write(&definition, "Large Language Model (LLM) is introduced.");
-    write(&after, "LLM appears after its definition.");
+    write(&before, "XYZ appears before its definition.");
+    write(&definition, "Xenon Yard Zephyr (XYZ) is introduced.");
+    write(&after, "XYZ appears after its definition.");
     let config = config_for(RuleId::Acr001);
 
     let document = parser::parse(main, &config.latex).unwrap();
@@ -145,7 +145,7 @@ fn acr001_reports_only_uses_before_a_cross_file_definition() {
     let source = document.source(&diagnostics[0].span.file).unwrap();
     assert_eq!(
         &source.text[diagnostics[0].span.start..diagnostics[0].span.end],
-        "LLM"
+        "XYZ"
     );
 }
 

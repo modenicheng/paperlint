@@ -136,7 +136,9 @@ fn variant_reports(canonical: &str, surface: &str) -> bool {
 }
 
 fn ascii_tokens(text: &str) -> impl Iterator<Item = Range<usize>> + '_ {
-    token_pattern().find_iter(text).map(|matched| matched.range())
+    token_pattern()
+        .find_iter(text)
+        .map(|matched| matched.range())
 }
 
 fn token_pattern() -> &'static Regex {
