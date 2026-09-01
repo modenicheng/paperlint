@@ -108,6 +108,9 @@ impl DefaultConfig {
                     "verbatim".into(),
                 ],
             },
+            lexicon: super::rules::LexiconConfig {
+                entries: Vec::new(),
+            },
         }
     }
 }

@@ -1,0 +1,339 @@
+//! Shared read-only context handed to every rule for one lint run.
+//!
+//! [`DocumentTermRegistry`] is built exactly once per run, walks
+//! [`Document::blocks`] in reading order, and owns the shared acronym and
+//! lexicon analyses. Rules must reinterpret raw text through these queries
+//! instead of re-deriving term knowledge on their own.
+
+use crate::{
+    config::PaperlintConfig,
+    latex::parser::Document,
+    latex::span::Span,
+    text::{
+        lexicon::{LexemeKind, LexemeSource, Lexicon},
+        terminology::{extract_acronym_definitions, find_acronym_usages},
+    },
+};
+use std::{collections::HashMap, ops::Range};
+
+/// A position in the document's reading order: block index plus byte offset
+/// inside that block's logical text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ReadingPosition {
+    pub block: usize,
+    pub byte: usize,
+}
+
+/// A logical-text range inside one block.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocatedRange {
+    pub block: usize,
+    pub range: Range<usize>,
+}
+
+impl LocatedRange {
+    pub const fn position(&self) -> ReadingPosition {
+        ReadingPosition {
+            block: self.block,
+            byte: self.range.start,
+        }
+    }
+}
+
+/// An acronym definition found in reading order.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AcronymDefinitionEntry {
+    pub acronym: String,
+    /// Expanded form preceding the definition, when recognized.
+    pub chinese: Option<String>,
+    pub english: Option<String>,
+    pub location: LocatedRange,
+}
+
+/// An acronym occurrence; `is_definition` marks occurrences that are part of
+/// a definition pattern in the same block.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AcronymUsageEntry {
+    pub acronym: String,
+    pub location: LocatedRange,
+    pub is_definition: bool,
+}
+
+/// One lexicon-resolved term occurrence in the document.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LexiconOccurrence {
+    /// The surface actually appearing in the text.
+    pub surface: String,
+    /// The canonical form of the matched lexeme.
+    pub canonical: String,
+    pub kind: LexemeKind,
+    pub source: LexemeSource,
+    pub location: LocatedRange,
+}
+
+/// Shared term analysis for one document, built once per lint run.
+#[derive(Debug)]
+pub struct DocumentTermRegistry {
+    definitions: Vec<AcronymDefinitionEntry>,
+    usages: Vec<AcronymUsageEntry>,
+    first_definitions: Vec<AcronymDefinitionEntry>,
+    lexicon_occurrences: Vec<LexiconOccurrence>,
+    first_lexicon_occurrences: HashMap<String, usize>,
+}
+
+impl DocumentTermRegistry {
+    /// Walk `document.blocks` in reading order and collect the acronym and
+    /// lexicon analyses.
+    pub fn new(document: &Document, lexicon: &Lexicon) -> Self {
+        let mut definitions = Vec::new();
+        let mut usages = Vec::new();
+        let mut lexicon_occurrences = Vec::new();
+
+        for (block_index, block) in document.blocks.iter().enumerate() {
+            let block_definitions = extract_acronym_definitions(&block.text);
+            let definition_ranges: Vec<(String, Range<usize>)> = block_definitions
+                .iter()
+                .map(|definition| (definition.acronym.clone(), definition.range.clone()))
+                .collect();
+
+            definitions.reserve(block_definitions.len());
+            let mut converted_definitions = Vec::with_capacity(block_definitions.len());
+            for definition in block_definitions {
+                converted_definitions.push(AcronymDefinitionEntry {
+                    acronym: definition.acronym,
+                    chinese: definition.chinese,
+                    english: definition.english,
+                    location: LocatedRange {
+                        block: block_index,
+                        range: definition.range,
+                    },
+                });
+            }
+            definitions.extend(converted_definitions);
+
+            for usage in find_acronym_usages(&block.text) {
+                let is_definition = definition_ranges
+                    .iter()
+                    .any(|(acronym, range)| *acronym == usage.acronym && *range == usage.range);
+                usages.push(AcronymUsageEntry {
+                    acronym: usage.acronym,
+                    location: LocatedRange {
+                        block: block_index,
+                        range: usage.range,
+                    },
+                    is_definition,
+                });
+            }
+
+            collect_lexicon_occurrences(
+                &block.text,
+                block_index,
+                lexicon,
+                &mut lexicon_occurrences,
+            );
+        }
+
+        lexicon_occurrences.sort_by(|left, right| {
+            left.location
+                .position()
+                .cmp(&right.location.position())
+                .then(left.location.range.end.cmp(&right.location.range.end))
+                .then(left.canonical.cmp(&right.canonical))
+        });
+        let mut first_lexicon_occurrences = HashMap::new();
+        for (index, occurrence) in lexicon_occurrences.iter().enumerate() {
+            first_lexicon_occurrences
+                .entry(occurrence.canonical.clone())
+                .or_insert(index);
+        }
+
+        // Earliest definition per acronym, in reading order.
+        let mut first_definitions: Vec<AcronymDefinitionEntry> = Vec::new();
+        for definition in &definitions {
+            if let Some(existing) = first_definitions
+                .iter_mut()
+                .find(|existing| existing.acronym == definition.acronym)
+            {
+                if definition.location.position() < existing.location.position() {
+                    *existing = definition.clone();
+                }
+            } else {
+                first_definitions.push(definition.clone());
+            }
+        }
+        first_definitions.sort_by_key(|definition| definition.location.position());
+
+        Self {
+            definitions,
+            usages,
+            first_definitions,
+            lexicon_occurrences,
+            first_lexicon_occurrences,
+        }
+    }
+
+    /// All acronym definitions in reading order.
+    pub fn definitions(&self) -> &[AcronymDefinitionEntry] {
+        &self.definitions
+    }
+
+    /// All acronym occurrences in reading order, definition occurrences
+    /// included and flagged.
+    pub fn usages(&self) -> &[AcronymUsageEntry] {
+        &self.usages
+    }
+
+    /// The earliest definition of `acronym`, if any.
+    pub fn first_definition(&self, acronym: &str) -> Option<&AcronymDefinitionEntry> {
+        self.first_definitions
+            .iter()
+            .find(|definition| definition.acronym == acronym)
+    }
+
+    /// Earliest definition per acronym, in reading order.
+    pub fn first_definitions(&self) -> &[AcronymDefinitionEntry] {
+        &self.first_definitions
+    }
+
+    /// Non-definition occurrences of `acronym` strictly after `position`, in
+    /// reading order.
+    pub fn usages_after(
+        &self,
+        acronym: &str,
+        position: ReadingPosition,
+    ) -> impl Iterator<Item = &AcronymUsageEntry> {
+        self.usages.iter().filter(move |usage| {
+            !usage.is_definition && usage.acronym == acronym && usage.location.position() > position
+        })
+    }
+
+    /// All lexicon-resolved occurrences in reading order.
+    pub fn lexicon_occurrences(&self) -> &[LexiconOccurrence] {
+        &self.lexicon_occurrences
+    }
+
+    /// Lexicon-resolved occurrences of one canonical form, in reading order.
+    pub fn lexicon_occurrences_of(
+        &self,
+        canonical: &str,
+    ) -> impl Iterator<Item = &LexiconOccurrence> {
+        self.lexicon_occurrences
+            .iter()
+            .filter(move |occurrence| occurrence.canonical == canonical)
+    }
+
+    /// The first lexicon-resolved occurrence of `canonical` in reading order.
+    pub fn first_lexicon_occurrence(&self, canonical: &str) -> Option<&LexiconOccurrence> {
+        self.first_lexicon_occurrences
+            .get(canonical)
+            .map(|&index| &self.lexicon_occurrences[index])
+    }
+}
+
+fn collect_lexicon_occurrences(
+    text: &str,
+    block_index: usize,
+    lexicon: &Lexicon,
+    occurrences: &mut Vec<LexiconOccurrence>,
+) {
+    let lowered = text.to_ascii_lowercase();
+    for lexeme in lexicon.entries() {
+        for surface in std::iter::once(lexeme.canonical.as_str())
+            .chain(lexeme.aliases.iter().map(String::as_str))
+        {
+            if lexeme.case_sensitive {
+                for (start, matched) in text.match_indices(surface) {
+                    if is_bounded_match(text, start, start + matched.len()) {
+                        occurrences.push(occurrence(matched, lexeme, block_index, start));
+                    }
+                }
+            } else {
+                let needle = surface.to_ascii_lowercase();
+                for (start, matched) in lowered.match_indices(&needle) {
+                    if is_bounded_match(text, start, start + matched.len()) {
+                        occurrences.push(occurrence(
+                            &text[start..start + matched.len()],
+                            lexeme,
+                            block_index,
+                            start,
+                        ));
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn occurrence(
+    surface: &str,
+    lexeme: &crate::text::lexicon::Lexeme,
+    block_index: usize,
+    start: usize,
+) -> LexiconOccurrence {
+    LexiconOccurrence {
+        surface: surface.to_string(),
+        canonical: lexeme.canonical.clone(),
+        kind: lexeme.kind,
+        source: lexeme.source,
+        location: LocatedRange {
+            block: block_index,
+            range: start..start + surface.len(),
+        },
+    }
+}
+
+/// Reject matches glued to ASCII alphanumerics (`AIM` must not match `AI`).
+/// Non-ASCII neighbors never block a match, so CJK surfaces match freely.
+fn is_bounded_match(text: &str, start: usize, end: usize) -> bool {
+    let bytes = text.as_bytes();
+    let before_ok = start == 0 || !bytes[start - 1].is_ascii_alphanumeric();
+    let after_ok = end >= bytes.len() || !bytes[end].is_ascii_alphanumeric();
+    before_ok && after_ok
+}
+
+/// Everything a rule needs for one lint run. Built once per document by the
+/// engine and shared read-only across all rules.
+pub struct LintContext<'a> {
+    document: &'a Document,
+    config: &'a PaperlintConfig,
+    lexicon: &'a Lexicon,
+    registry: DocumentTermRegistry,
+}
+
+impl<'a> LintContext<'a> {
+    pub fn new(document: &'a Document, config: &'a PaperlintConfig, lexicon: &'a Lexicon) -> Self {
+        Self {
+            document,
+            config,
+            lexicon,
+            registry: DocumentTermRegistry::new(document, lexicon),
+        }
+    }
+
+    pub const fn document(&self) -> &'a Document {
+        self.document
+    }
+
+    pub const fn config(&self) -> &'a PaperlintConfig {
+        self.config
+    }
+
+    pub const fn lexicon(&self) -> &'a Lexicon {
+        self.lexicon
+    }
+
+    pub const fn registry(&self) -> &DocumentTermRegistry {
+        &self.registry
+    }
+
+    /// Map a block-relative logical range to its LaTeX source span.
+    pub fn span(&self, block: usize, range: Range<usize>) -> Option<Span> {
+        let block = self.document.blocks.get(block)?;
+        self.document.source_span(block, range)
+    }
+
+    /// Map a located range to its LaTeX source span.
+    pub fn span_of(&self, located: &LocatedRange) -> Option<Span> {
+        self.span(located.block, located.range.clone())
+    }
+}

@@ -1,21 +1,12 @@
 use crate::{
-    config::PaperlintConfig,
-    latex::parser::Document,
-    lint::diagnostic::Diagnostic,
+    lint::{context::LintContext, diagnostic::Diagnostic},
     rule_id::RuleId,
-    text::chars::effective_length,
-    text::{
-        Language, detect_language, segment_sentences,
-        terminology::{
-            AcronymDefinition, AcronymUsage, extract_acronym_definitions, find_acronym_usages,
-        },
-    },
+    text::{Language, chars::effective_length, detect_language, segment_sentences},
 };
-use std::{collections::HashMap, ops::Range};
 
 pub trait Rule {
     fn id(&self) -> RuleId;
-    fn check(&self, document: &Document, config: &PaperlintConfig) -> Vec<Diagnostic>;
+    fn check(&self, context: &LintContext) -> Vec<Diagnostic>;
 }
 
 pub struct Acr001;
@@ -28,26 +19,14 @@ impl Rule for Acr001 {
         RuleId::Acr001
     }
 
-    fn check(&self, document: &Document, config: &PaperlintConfig) -> Vec<Diagnostic> {
-        let rule = &config.rules.acr001;
+    fn check(&self, context: &LintContext) -> Vec<Diagnostic> {
+        let rule = &context.config().rules.acr001;
         if !rule.level.is_enabled() {
             return Vec::new();
         }
-        let analysis = analyze_acronyms(document);
-        let first_definitions: HashMap<&str, ReadingPosition> = analysis
-            .definitions
-            .iter()
-            .map(|definition| (definition.acronym.as_str(), definition.position()))
-            .fold(HashMap::new(), |mut first, (acronym, position)| {
-                first
-                    .entry(acronym)
-                    .and_modify(|existing| *existing = (*existing).min(position))
-                    .or_insert(position);
-                first
-            });
-
-        analysis
-            .usages
+        let registry = context.registry();
+        registry
+            .usages()
             .iter()
             .filter(|usage| !usage.is_definition)
             .filter(|usage| {
@@ -55,13 +34,14 @@ impl Rule for Acr001 {
                     && !rule.ignore.iter().any(|value| value == &usage.acronym)
             })
             .filter(|usage| {
-                first_definitions
-                    .get(usage.acronym.as_str())
-                    .is_none_or(|definition| usage.position() < *definition)
+                registry
+                    .first_definition(&usage.acronym)
+                    .is_none_or(|definition| {
+                        usage.location.position() < definition.location.position()
+                    })
             })
             .filter_map(|usage| {
-                let block = &document.blocks[usage.block];
-                let span = document.source_span(block, usage.range.clone())?;
+                let span = context.span(usage.location.block, usage.location.range.clone())?;
                 Some(Diagnostic {
                     rule: self.id(),
                     severity: rule.level,
@@ -78,47 +58,24 @@ impl Rule for Acr002 {
         RuleId::Acr002
     }
 
-    fn check(&self, document: &Document, config: &PaperlintConfig) -> Vec<Diagnostic> {
-        let rule = &config.rules.acr002;
+    fn check(&self, context: &LintContext) -> Vec<Diagnostic> {
+        let rule = &context.config().rules.acr002;
         if !rule.level.is_enabled() {
             return Vec::new();
         }
-        let analysis = analyze_acronyms(document);
-        let mut first_definitions: HashMap<&str, &LocatedDefinition> = HashMap::new();
-        for definition in &analysis.definitions {
-            first_definitions
-                .entry(definition.acronym.as_str())
-                .and_modify(|existing| {
-                    if definition.position() < existing.position() {
-                        *existing = definition;
-                    }
-                })
-                .or_insert(definition);
-        }
-
-        let mut findings: Vec<_> = first_definitions
-            .into_iter()
-            .filter_map(|(acronym, definition)| {
-                let usage_count = analysis
-                    .usages
-                    .iter()
-                    .filter(|usage| {
-                        !usage.is_definition
-                            && usage.acronym == acronym
-                            && usage.position() > definition.position()
-                    })
+        let registry = context.registry();
+        registry
+            .first_definitions()
+            .iter()
+            .filter_map(|definition| {
+                let usage_count = registry
+                    .usages_after(&definition.acronym, definition.location.position())
                     .count();
                 (usage_count < rule.min_usages_after_definition)
                     .then_some((definition, usage_count))
             })
-            .collect();
-        findings.sort_by_key(|(definition, _)| definition.position());
-
-        findings
-            .into_iter()
             .filter_map(|(definition, usage_count)| {
-                let block = &document.blocks[definition.block];
-                let span = document.source_span(block, definition.range.clone())?;
+                let span = context.span(definition.location.block, definition.location.range.clone())?;
                 let usage_word = if usage_count == 1 { "use" } else { "uses" };
                 Some(Diagnostic {
                     rule: self.id(),
@@ -134,100 +91,17 @@ impl Rule for Acr002 {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-struct ReadingPosition {
-    block: usize,
-    byte: usize,
-}
-
-#[derive(Debug)]
-struct LocatedDefinition {
-    acronym: String,
-    block: usize,
-    range: Range<usize>,
-}
-
-impl LocatedDefinition {
-    fn position(&self) -> ReadingPosition {
-        ReadingPosition {
-            block: self.block,
-            byte: self.range.start,
-        }
-    }
-}
-
-#[derive(Debug)]
-struct LocatedUsage {
-    acronym: String,
-    block: usize,
-    range: Range<usize>,
-    is_definition: bool,
-}
-
-impl LocatedUsage {
-    fn position(&self) -> ReadingPosition {
-        ReadingPosition {
-            block: self.block,
-            byte: self.range.start,
-        }
-    }
-}
-
-#[derive(Debug, Default)]
-struct AcronymAnalysis {
-    definitions: Vec<LocatedDefinition>,
-    usages: Vec<LocatedUsage>,
-}
-
-fn analyze_acronyms(document: &Document) -> AcronymAnalysis {
-    let mut analysis = AcronymAnalysis::default();
-    for (block_index, block) in document.blocks.iter().enumerate() {
-        let definitions = extract_acronym_definitions(&block.text);
-        let definition_ranges: Vec<(String, Range<usize>)> = definitions
-            .iter()
-            .map(|definition: &AcronymDefinition| {
-                (definition.acronym.clone(), definition.range.clone())
-            })
-            .collect();
-
-        analysis.definitions.extend(definitions.into_iter().map(
-            |definition: AcronymDefinition| LocatedDefinition {
-                acronym: definition.acronym,
-                block: block_index,
-                range: definition.range,
-            },
-        ));
-        analysis
-            .usages
-            .extend(
-                find_acronym_usages(&block.text)
-                    .into_iter()
-                    .map(|usage: AcronymUsage| {
-                        let is_definition = definition_ranges.iter().any(|(acronym, range)| {
-                            acronym == &usage.acronym && *range == usage.range
-                        });
-                        LocatedUsage {
-                            acronym: usage.acronym,
-                            block: block_index,
-                            range: usage.range,
-                            is_definition,
-                        }
-                    }),
-            );
-    }
-    analysis
-}
-
 impl Rule for Term001 {
     fn id(&self) -> RuleId {
         RuleId::Term001
     }
 
-    fn check(&self, document: &Document, config: &PaperlintConfig) -> Vec<Diagnostic> {
-        let rule = &config.rules.term001;
+    fn check(&self, context: &LintContext) -> Vec<Diagnostic> {
+        let rule = &context.config().rules.term001;
         if !rule.level.is_enabled() {
             return Vec::new();
         }
+        let document = context.document();
         let mut replacements: Vec<_> = rule.replace.iter().collect();
         replacements.sort_by(|left, right| left.0.cmp(right.0));
         let mut diagnostics = Vec::new();
@@ -262,11 +136,12 @@ impl Rule for Style001 {
         RuleId::Style001
     }
 
-    fn check(&self, document: &Document, config: &PaperlintConfig) -> Vec<Diagnostic> {
-        let rule = &config.rules.style001;
+    fn check(&self, context: &LintContext) -> Vec<Diagnostic> {
+        let rule = &context.config().rules.style001;
         if !rule.level.is_enabled() {
             return Vec::new();
         }
+        let document = context.document();
         let mut diagnostics = Vec::new();
         let logical_base = crate::text::sentence::logical_base_span();
         for block in &document.blocks {

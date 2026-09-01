@@ -1,5 +1,6 @@
 pub mod chars;
 pub mod language;
+pub mod lexicon;
 pub mod sentence;
 pub mod terminology;
 

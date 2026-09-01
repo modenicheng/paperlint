@@ -1,4 +1,4 @@
-use crate::rule_id::RuleId;
+use crate::{rule_id::RuleId, text::lexicon::LexemeKind};
 use serde::Deserialize;
 use std::collections::HashMap;
 
@@ -125,6 +125,28 @@ pub struct Syn005Config {
     pub require_dependency: bool,
 }
 
+/// One `[[lexicon.entries]]` workspace entry.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LexiconEntryConfig {
+    pub canonical: String,
+    #[serde(default)]
+    pub aliases: Vec<String>,
+    pub kind: LexemeKind,
+    /// Defaults to the sensible value for `kind` when omitted.
+    #[serde(default)]
+    pub case_sensitive: Option<bool>,
+    #[serde(default)]
+    pub requires_explanation: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LexiconConfig {
+    #[serde(default)]
+    pub entries: Vec<LexiconEntryConfig>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct LatexConfig {
@@ -145,6 +167,7 @@ pub struct PaperlintConfig {
     pub rules: RulesConfig,
     pub latex: LatexConfig,
     pub nlp: NlpConfig,
+    pub lexicon: LexiconConfig,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -169,6 +192,7 @@ pub struct RawPaperlintConfig {
     pub rules: RawRulesConfig,
     pub latex: RawLatexConfig,
     pub nlp: Option<NlpConfig>,
+    pub lexicon: Option<RawLexiconConfig>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -196,6 +220,13 @@ pub struct RawRulesConfig {
 #[serde(deny_unknown_fields, default)]
 pub struct RawLatexConfig {
     pub ignore_environments: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(deny_unknown_fields, default)]
+pub struct RawLexiconConfig {
+    #[serde(default)]
+    pub entries: Vec<LexiconEntryConfig>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -278,6 +309,11 @@ impl PaperlintConfig {
         }
         if let Some(nlp) = raw.nlp {
             config.nlp = nlp;
+        }
+        if let Some(lexicon) = raw.lexicon {
+            config.lexicon = LexiconConfig {
+                entries: lexicon.entries,
+            };
         }
         config
     }

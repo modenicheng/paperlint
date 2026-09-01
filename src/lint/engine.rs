@@ -1,7 +1,8 @@
 use crate::{
     config::PaperlintConfig,
     latex::parser::Document,
-    lint::{diagnostic::Diagnostic, registry::RuleRegistry},
+    lint::{context::LintContext, diagnostic::Diagnostic, registry::RuleRegistry},
+    text::lexicon::Lexicon,
 };
 
 pub struct RuleEngine {
@@ -14,9 +15,11 @@ impl RuleEngine {
     }
 
     pub fn run(&self, document: &Document, config: &PaperlintConfig) -> Vec<Diagnostic> {
+        let lexicon = Lexicon::from_config(config);
+        let context = LintContext::new(document, config, &lexicon);
         let mut diagnostics = Vec::new();
         for rule in self.registry.enabled_rules() {
-            diagnostics.extend(rule.check(document, config));
+            diagnostics.extend(rule.check(&context));
         }
         diagnostics
     }
