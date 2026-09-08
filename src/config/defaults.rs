@@ -13,11 +13,11 @@ impl DefaultConfig {
 
         PaperlintConfig {
             nlp: NlpConfig {
-                tokenizer: "jieba".into(),
-                pos: "jieba".into(),
-                syntax: "none".into(),
+                tokenizer: NlpTokenizerBackend::Jieba,
+                pos: NlpPosBackend::Jieba,
+                syntax: NlpSyntaxBackend::None,
             },
-            rules: super::rules::RulesConfig {
+            rules: RulesConfig {
                 acr001: Acr001Config {
                     level: Level::Error,
                     min_length: 2,
@@ -119,7 +119,7 @@ impl DefaultConfig {
                     "verbatim".into(),
                 ],
             },
-            lexicon: super::rules::LexiconConfig {
+            lexicon: LexiconConfig {
                 entries: Vec::new(),
             },
         }

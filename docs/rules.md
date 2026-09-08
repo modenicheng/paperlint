@@ -79,6 +79,8 @@ warning[TERM001]:
 
 Deterministic check: terms declared in `[[lexicon.entries]]` with `requires_explanation = true` must be explained near their **first** occurrence (structured declarations count as explanations; later explanations never cancel a missing first-use one). High-confidence triggers: Chinese `X是/是指/指的是/即/定义为/表示`, `所谓X`, `称X为`; English `X refers to / is defined as / denotes / stands for / (also known as ...) / , i.e., / :`.
 
+`TERM002` does not report automatically discovered unknown candidates. `TermCandidate` values are shared, evidence-only registry data; only configured lexicon entries with `requires_explanation = true` enter this rule.
+
 ```toml
 [rules.TERM002]
 level = "warning"
@@ -253,7 +255,7 @@ require_dependency = false
 
 ## Rules requiring dependency parsing (planned)
 
-The following are **not** implemented as regex approximations. They are gated on a syntax backend (`[nlp] syntax = "ltp"`, planned v0.2) and are skipped with `rule skipped: dependency analysis unavailable` when no parser is configured:
+The following are **not** implemented as regex approximations. They are reserved for a future dependency backend; current configs must keep `[nlp] syntax = "none"`.
 
 - 主语缺失 / 谓语残缺 / 宾语残缺
 - 多层定语依附关系 / 悬垂修饰
@@ -268,10 +270,10 @@ The following are **not** implemented as regex approximations. They are gated on
 [nlp]
 tokenizer = "jieba"
 pos = "jieba"
-syntax = "none"   # future: "ltp" enables dependency-gated rules
+syntax = "none"
 ```
 
-v0.1 backend: jieba-rs (CWS + POS), fully native Rust. The `LexicalAnalyzer` / `SyntaxAnalyzer` traits keep rules decoupled from any specific backend.
+Current accepted values are exactly `tokenizer = "jieba"`, `pos = "jieba"`, and `syntax = "none"`; unsupported values fail config loading. v0.1 uses jieba-rs (CWS + POS), fully native Rust. Sentence and token units are built once in `LintContext` as logical UTF-8 byte ranges; the resulting `DocumentAnalysis` feeds the shared `DocumentTermRegistry`, including term-candidate evidence. Logical ranges are mapped back to LaTeX source spans only when a consumer needs a physical location. Workspace lexicon canonical and alias surfaces without whitespace are injected into jieba as technical nouns.
 
 ## Punctuation rules (planned)
 
@@ -302,6 +304,8 @@ requires_explanation = false
 ```
 
 Built-in entries are a conservative cross-domain core (`PDF`, `DNA`, `HTTP`, `JSON`, `GitHub`, `PyTorch`, `TensorFlow`, `LaTeX`, `Hz`, `kHz`, …). No domain terms ship built in; declare them per project.
+
+The same run-scoped registry also retains deterministic `TermCandidate` evidence for unknown surfaces. Known lexicon entries and exact document-declared Chinese, English, and acronym surfaces are suppressed from that candidate list. Candidates have a surface, first logical location, sorted evidence, bounded score, and kind hint, but they are not diagnostics and are not serialized into CLI JSON output.
 
 ## LaTeX projects and configuration
 
@@ -344,8 +348,10 @@ level = "warning"
 level = "warning"
 context_chars = 100
 
-[[rules.TERM002.terms]]
-term = "检索增强生成"
+[[lexicon.entries]]
+canonical = "检索增强生成"
+kind = "term"
+requires_explanation = true
 
 [rules.STYLE001]
 level = "warning"
@@ -360,6 +366,7 @@ words = ["进行", "开展", "实现"]
 [rules.FUNC001]
 level = "warning"
 max_ratio = 0.20
+min_sentence_tokens = 10
 
 [rules.SYN001]
 level = "warning"
@@ -368,6 +375,7 @@ max_per_paragraph = 2
 [rules.SYN002]
 level = "warning"
 max_per_paragraph = 2
+max_consecutive_sentences = 2
 
 [rules.SYN003]
 level = "warning"
@@ -380,6 +388,7 @@ max_connectives_per_sentence = 3
 [rules.SYN005]
 level = "warning"
 max_modifier_tokens = 10
+require_dependency = false
 
 [latex]
 ignore_environments = [

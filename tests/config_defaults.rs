@@ -1,4 +1,7 @@
-use paperlint::config::{DefaultConfig, PaperlintConfig, RawPaperlintConfig};
+use paperlint::config::{
+    DefaultConfig, NlpPosBackend, NlpSyntaxBackend, NlpTokenizerBackend, PaperlintConfig,
+    RawPaperlintConfig,
+};
 
 #[test]
 fn given_no_config_when_loading_defaults_then_expected_rules_are_enabled() {
@@ -7,6 +10,9 @@ fn given_no_config_when_loading_defaults_then_expected_rules_are_enabled() {
     assert!(config.rules.acr002.level.is_enabled());
     assert!(config.rules.term001.level.is_enabled());
     assert!(config.rules.style001.level.is_enabled());
+    assert_eq!(config.nlp.tokenizer, NlpTokenizerBackend::Jieba);
+    assert_eq!(config.nlp.pos, NlpPosBackend::Jieba);
+    assert_eq!(config.nlp.syntax, NlpSyntaxBackend::None);
 }
 
 #[test]
@@ -73,4 +79,42 @@ max_words = 7
     let config = PaperlintConfig::from_raw(raw, DefaultConfig::load());
     assert_eq!(config.rules.style001.max_chars, 80);
     assert_eq!(config.rules.style001.max_english_words, 7);
+}
+
+#[test]
+fn given_nlp_config_when_serializing_then_backends_are_structured_values() {
+    let config = DefaultConfig::load();
+
+    let value = serde_json::to_value(&config.nlp).expect("NLP config serializes");
+
+    assert_eq!(value["tokenizer"], "jieba");
+    assert_eq!(value["pos"], "jieba");
+    assert_eq!(value["syntax"], "none");
+}
+
+#[test]
+fn given_documented_full_example_when_parsing_then_it_is_valid_config() {
+    let rules_doc = include_str!("../docs/rules.md");
+    let full_example = extract_full_example_toml(rules_doc);
+
+    let raw: RawPaperlintConfig =
+        toml::from_str(full_example).expect("documented full paperlint.toml parses");
+    let config = PaperlintConfig::from_raw(raw, DefaultConfig::load());
+
+    assert_eq!(config.rules.func001.min_sentence_tokens, 10);
+    assert!(!config.rules.syn005.require_dependency);
+}
+
+fn extract_full_example_toml(document: &str) -> &str {
+    let heading = document
+        .find("## Full example")
+        .expect("full example heading");
+    let after_heading = &document[heading..];
+    let fence_start = after_heading
+        .find("```toml\n")
+        .expect("full example TOML fence")
+        + "```toml\n".len();
+    let after_fence = &after_heading[fence_start..];
+    let fence_end = after_fence.find("\n```").expect("full example fence end");
+    &after_fence[..fence_end]
 }
