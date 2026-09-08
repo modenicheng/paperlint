@@ -91,10 +91,14 @@ Full rule reference, configuration keys, and examples: **[docs/rules.md](./docs/
 
 ```text
 LaTeX → ProjectResolver → Parser → Logical Document
-      → Text Analyzer (language, sentences, terminology)
-      → NLP Analyzer (jieba: tokens + POS, span-preserving)
+      → DocumentAnalysis (paragraph-like blocks, sentences, language, jieba tokens + POS)
+      → DocumentTermRegistry (acronyms, known lexicon occurrences, term candidates)
       → Rule Engine → Diagnostics
 ```
+
+`LintContext` owns and shares the analysis and registry for one lint run. Tokens, sentences, and term candidates use logical UTF-8 byte ranges; diagnostics map those ranges back to original LaTeX source spans through the document source map. `[nlp]` currently accepts only `tokenizer = "jieba"`, `pos = "jieba"`, and `syntax = "none"`.
+
+`TermCandidate` values are deterministic, evidence-scored registry data for internal consumers. They are not diagnostics and do not add a rule, configuration key, or JSON output field. `TERM002` remains narrower: it checks only `[[lexicon.entries]]` whose `requires_explanation` value is `true`.
 
 Same input + same config = same diagnostics. Deterministic, mechanical, reproducible.
 
@@ -185,10 +189,14 @@ max_english_words = 45  # 英文按单词数
 
 ```text
 LaTeX → ProjectResolver → Parser → 逻辑文档
-      → 文本分析（语言检测、句子切分、术语提取）
-      → NLP 分析（jieba 分词 + POS，保留源位置映射）
+      → DocumentAnalysis（段落状 block、句子、语言、jieba 分词 + POS）
+      → DocumentTermRegistry（缩写、已知词典项出现、术语候选证据）
       → 规则引擎 → 诊断输出
 ```
+
+`LintContext` 在一次检查中持有并共享 analysis 与 registry。Token、句子和术语候选都保存逻辑 UTF-8 byte range；诊断输出时再通过文档 source map 映回原始 LaTeX 源码 span。`[nlp]` 当前只接受 `tokenizer = "jieba"`、`pos = "jieba"`、`syntax = "none"`。
+
+`TermCandidate` 是供内部消费者使用的、确定性的候选证据与评分数据，不是诊断，也没有新增规则、配置项或 JSON 字段。`TERM002` 仍只检查 `[[lexicon.entries]]` 中 `requires_explanation = true` 的已配置词项。
 
 同样输入 + 同样配置 = 同样诊断结果。机械、可解释、可复现。
 

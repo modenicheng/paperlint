@@ -22,7 +22,7 @@ LaTeX project
     -> Lexical Analysis
          - Chinese / English tokenization
          - POS tags
-         - source spans
+         - logical UTF-8 byte ranges mapped back to source spans
     -> Lexicon & Term Resolution
          - built-in dictionary
          - user dictionary
@@ -50,7 +50,7 @@ The parser should not decide whether a term is valid or explained. It should onl
 
 ## Phase 1 — Lexicon infrastructure
 
-**Priority: ✅ delivered (minimal)** — `Lexicon`/`Lexeme`/`LexemeKind` in `src/text/lexicon.rs`; workspace config `[[lexicon.entries]]`; built-in cross-domain core; batch overlay with frozen surface ownership; Aho-Corasick occurrence scan. User-global dictionary layer deferred.
+**Priority: ✅ delivered (minimal)** — `Lexicon`/`Lexeme`/`LexemeKind` in `src/text/lexicon.rs`; workspace config `[[lexicon.entries]]`; built-in cross-domain core; batch overlay with frozen surface ownership; Aho-Corasick occurrence scan; workspace canonical and alias surfaces are injected into jieba as technical nouns. User-global dictionary layer deferred.
 
 Build a reusable lexicon layer shared by acronym, terminology, spelling, and future explanation rules.
 
@@ -114,7 +114,7 @@ The exact Rust representation can evolve, but rules should consume a stable sema
 
 ## Phase 2 — Document Term Registry
 
-**Priority: ✅ delivered (minimal)** — `DocumentTermRegistry` + `LintContext` in `src/lint/context.rs`; acronym definitions/usages and lexicon occurrences in reading order; shared by ACR001/002, CASE001, TERM002. Observed-capitalization tracking partially available via CASE001 token walk.
+**Priority: ✅ delivered (minimal)** — `DocumentAnalysis` + `DocumentTermRegistry` + `LintContext`; paragraph-like parser blocks, sentence language, jieba tokens/POS, logical byte ranges, acronym definitions/usages, and known lexicon occurrences are built once in reading order and shared by rules. Observed-capitalization tracking partially available via CASE001 token walk.
 
 Build a document-scoped symbol/term table while traversing the logical document in reading order.
 
@@ -143,14 +143,14 @@ This registry should become the common data source for:
 
 - ACR001 / ACR002,
 - TERM001,
-- future TERM002,
+- TERM002,
 - capitalization consistency,
 - duplicate or conflicting declarations,
 - first-use checks.
 
 ## Phase 3 — English lexical diagnostics
 
-**Priority: ✅ delivered (minimal)** — CASE001 enforces canonical casing for lexicon-known acronyms/proper nouns/units and document declarations; unknown mixed-case words stay silent; ACR001 consumes lexicon kinds for denoising. Identifier morphology and spelling candidates deferred.
+**Priority: ✅ delivered (minimal)** — CASE001 enforces canonical casing for lexicon-known acronyms/proper nouns/units and document declarations; unknown mixed-case words stay silent; ACR001 consumes lexicon kinds for denoising. English identifier shapes now contribute evidence to the shared term-candidate registry; spelling diagnostics remain deferred.
 
 Introduce English candidate classification without assuming that every unknown token is misspelled.
 
@@ -167,7 +167,7 @@ Resolve candidates against:
 - document declarations,
 - other lexicon metadata.
 
-Only unresolved candidates should fall through to acronym/unknown diagnostics.
+Unresolved identifier shapes can contribute shared candidate evidence. No unknown-term diagnostic currently consumes that evidence.
 
 ### Case consistency
 
@@ -191,9 +191,9 @@ Keep these concepts distinct:
 
 A dictionary miss alone must never prove a spelling error.
 
-## Phase 4 — Chinese term-candidate extraction
+## Phase 4 — Term-candidate extraction
 
-**Priority: medium term**
+**Priority: ✅ delivered (shared analysis)** — `DocumentTermRegistry::term_candidates` exposes byte-exact surfaces in deterministic reading order, with the first logical `LocatedRange`, normalized evidence, a bounded score, and a kind hint. Known lexicon surfaces and exact document declarations are suppressed before candidates are retained.
 
 Chinese unknown-term detection cannot rely only on tokenizer output. A novel technical term may be segmented entirely into common known words.
 
@@ -213,21 +213,21 @@ while the full phrase is still the concept that may require explanation.
 
 ### Candidate signals
 
-Explore deterministic extraction from:
+The delivered sentence-local extractor uses deterministic evidence from:
 
-- noun / adjective phrase runs,
-- repeated fixed n-grams,
-- Chinese-English mixed phrases,
-- bracketed or explicitly introduced terms,
-- quotation-mark emphasis,
-- project-configured terms,
-- document-local repetition patterns.
+- bounded, repeated 2–6 token Chinese noun/adjective n-grams,
+- all-caps, Camel/Pascal, and letter-plus-digit English identifiers,
+- bounded Chinese-English mixed runs,
+- quoted or parenthesized terms,
+- explicit Chinese and English definition-introduction forms.
 
-The goal is candidate discovery, not automatic classification as an error.
+Project-configured lexicon entries and exact Chinese, English, or acronym declaration surfaces are suppressors, not candidate signals. The goal is candidate discovery, not automatic classification as an error.
 
 ### Output
 
-The extractor should produce scored or tagged term candidates with spans and evidence so downstream rules can decide whether to warn.
+The extractor stores one `TermCandidate` per byte-exact surface in the shared registry. Locations are logical UTF-8 byte ranges; consumers map them to source spans with `LintContext::span_of` (or `Document::source_span` at the lower level). This registry is evidence-only analysis data: no candidate lint rule, configuration block, diagnostic, or JSON field is delivered.
+
+`TERM002` does not consume unknown candidates. It still checks only configured `[[lexicon.entries]]` with `requires_explanation = true`.
 
 ## Phase 5 — TERM002 deterministic explanation detection
 
@@ -397,18 +397,7 @@ Once the shared lexical/term infrastructure is stable, Paperlint can add rules w
 
 Paperlint should not become a general prose-generation system or judge whether writing is "beautiful". Its strongest niche is precise, mechanical diagnostics that authors can understand and reproduce.
 
-A representative future diagnostic should look like:
-
-```text
-warning[TERM002]: unknown technical term `跨模态语义蒸馏网络`
-  - first occurrence in sections/method.tex
-  - not present in built-in, user, or workspace lexicons
-  - no declaration found earlier in the document
-  - no clear explanation detected near first use
-
-Add it to the workspace lexicon if it is accepted domain knowledge,
-or explain it at first use if readers are expected to learn the term here.
-```
+Unknown-term diagnostics remain intentionally undesigned and have no assigned rule ID. In particular, the delivered `TERM002` rule is not an unknown-candidate rule; it checks only configured lexicon entries that explicitly require an explanation.
 
 ## Priority summary
 
@@ -417,12 +406,13 @@ or explain it at first use if readers are expected to learn the term here.
 | Lexicon infrastructure | ✅ Delivered (minimal) |
 | Document Term Registry | ✅ Delivered (minimal) |
 | English acronym/case classification | ✅ Delivered (CASE001) |
-| Basic unknown-candidate diagnostics | Delivered via lexicon (identifier morphology pending) |
-| Chinese compound term extraction | Medium term |
+| Deterministic term-candidate extraction | ✅ Delivered (shared analysis only) |
+| Unknown-candidate diagnostics | Not delivered |
+| Chinese compound candidate evidence | ✅ Delivered (bounded repeated n-grams) |
 | Deterministic TERM002 | ✅ Delivered (minimal) |
 | Dependency/syntax backend | Medium term |
 | Explanation evaluation dataset | Before model work |
 | Optional semantic classifier / ONNX | Long term |
 | LLM-assisted training-data generation | Model phase only |
 
-The immediate milestone is therefore not model training. It is to establish a stable pipeline from **Lexicon -> Document Term Registry -> Candidate Classification -> Rules**, then measure what deterministic methods still fail to resolve.
+The shared **Logical Document -> Lexical Analysis -> Document Term Registry -> Rules** pipeline now carries deterministic candidate evidence without changing diagnostics. The next decision is how that evidence should be evaluated before any separate unknown-term rule or optional model work is designed.

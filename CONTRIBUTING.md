@@ -217,27 +217,15 @@ pub struct MyNewRuleConfig {
     pub words: Vec<String>,
 }
 
-// Add to RulesConfig
-#[derive(Debug, Clone, PartialEq)]
-pub struct RulesConfig {
-    // ... existing
-    pub mynewrule: MyNewRuleConfig,
-}
+// Add to RulesConfig in `src/config/schema.rs`
+pub mynewrule: MyNewRuleConfig,
 
-// Add to RawRulesConfig
-#[derive(Debug, Clone, Deserialize, Default)]
-#[serde(deny_unknown_fields, default)]
-pub struct RawRulesConfig {
-    // ... existing
-    pub mynewrule: Option<RuleSetting<MyNewRuleConfig>>,
-}
+// Add to RawRulesConfig in `src/config/raw.rs`
+#[serde(alias = "MYNEW001")]
+pub mynewrule: Option<RuleSetting<MyNewRuleConfig>>,
 
-// Implement HasLevel trait
-impl HasLevel for MyNewRuleConfig {
-    fn set_level(&mut self, level: Level) {
-        self.level = level;
-    }
-}
+// Add to the impl_has_level! list in `src/config/level.rs`
+MyNewRuleConfig,
 
 // Add to PaperlintConfig::from_raw
 impl PaperlintConfig {
@@ -302,12 +290,8 @@ Create `src/rules/mynewrule.rs`:
 
 ```rust
 use crate::{
-    config::PaperlintConfig,
-    latex::{parser::Document, span::Span},
-    lint::diagnostic::Diagnostic,
+    lint::{context::LintContext, diagnostic::Diagnostic},
     rule_id::RuleId,
-    nlp::JiebaAnalyzer,
-    text::segment_sentences,
 };
 
 pub struct MyNewRule;
@@ -317,58 +301,38 @@ impl super::Rule for MyNewRule {
         RuleId::MyNewRule
     }
 
-    fn check(&self, document: &Document, config: &PaperlintConfig) -> Vec<Diagnostic> {
-        let rule_config = &config.rules.mynewrule;
-        
-        // Check if rule is enabled
+    fn check(&self, context: &LintContext) -> Vec<Diagnostic> {
+        let rule_config = &context.config().rules.mynewrule;
+
         if !rule_config.level.is_enabled() {
             return Vec::new();
         }
 
         let mut diagnostics = Vec::new();
-        
-        // Create base span for sentence segmentation
-        let base_span = Span {
-            file: document.path.clone(),
-            start: 0,
-            end: document.text.len(),
-            line: 1,
-            column: 1,
-        };
-        
-        // Segment into sentences
-        let sentences = segment_sentences(&document.text, &base_span);
-        
-        // Option 1: Simple pattern matching
-        for sentence in sentences {
-            let count = rule_config.words.iter()
-                .filter(|word| sentence.text.contains(word.as_str()))
-                .count();
-            
-            if count > rule_config.threshold {
-                diagnostics.push(Diagnostic {
-                    rule: self.id(),
-                    severity: rule_config.level,
-                    message: format!(
-                        "Found {} occurrences of target words (threshold: {})",
-                        count, rule_config.threshold
-                    ),
-                    span: sentence.span.clone(),
-                });
+
+        for paragraph in context.analysis().paragraphs() {
+            for sentence in &paragraph.sentences {
+                let count = rule_config.words.iter()
+                    .filter(|word| sentence.text.contains(word.as_str()))
+                    .count();
+
+                if count > rule_config.threshold {
+                    let Some(span) = context.span_of(&sentence.location) else {
+                        continue;
+                    };
+                    diagnostics.push(Diagnostic {
+                        rule: self.id(),
+                        severity: rule_config.level,
+                        message: format!(
+                            "Found {} occurrences of target words (threshold: {})",
+                            count, rule_config.threshold
+                        ),
+                        span,
+                    });
+                }
             }
         }
-        
-        // Option 2: Use NLP analysis
-        // let analyzer = JiebaAnalyzer::new();
-        // for sentence in sentences {
-        //     let analysis = analyzer.analyze(&sentence.text, &sentence.span);
-        //     
-        //     // Check POS tags, token sequences, etc.
-        //     for token in analysis.tokens {
-        //         // Your logic here
-        //     }
-        // }
-        
+
         diagnostics
     }
 }
@@ -376,26 +340,20 @@ impl super::Rule for MyNewRule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
 
     #[test]
     fn test_rule_detects_issue() {
-        // Create test document
-        let document = Document {
-            path: PathBuf::from("test.tex"),
-            text: "这是测试文本。".to_string(),
-        };
-        
-        // Create test config
         let mut config = crate::config::DefaultConfig::load();
         config.rules.mynewrule.words = vec!["测试".into()];
         config.rules.mynewrule.threshold = 0;
-        
-        // Run rule
+        let document =
+            crate::latex::parser::parse_stdin("这是测试文本。".to_string(), &config.latex).unwrap();
+        let lexicon = crate::text::lexicon::Lexicon::from_config(&config);
+        let context = crate::lint::context::LintContext::new(&document, &config, &lexicon);
+
         let rule = MyNewRule;
-        let diagnostics = rule.check(&document, &config);
-        
-        // Verify
+        let diagnostics = rule.check(&context);
+
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, RuleId::MyNewRule);
     }
@@ -410,15 +368,13 @@ Add to `src/rules/mod.rs`:
 mod mynewrule;
 
 use crate::{
-    config::PaperlintConfig,
-    latex::parser::Document,
-    lint::diagnostic::Diagnostic,
+    lint::{context::LintContext, diagnostic::Diagnostic},
     rule_id::RuleId,
 };
 
 pub trait Rule {
     fn id(&self) -> RuleId;
-    fn check(&self, document: &Document, config: &PaperlintConfig) -> Vec<Diagnostic>;
+    fn check(&self, context: &LintContext) -> Vec<Diagnostic>;
 }
 
 pub use mynewrule::MyNewRule;
@@ -834,21 +790,48 @@ cargo build --release
 ./target/release/paperlint /path/to/your/paper.tex
 ```
 
-### NLP Analysis
+### Shared NLP Analysis and Term Candidates
 
-When implementing rules that need NLP:
+Rules must consume the `DocumentAnalysis` and `DocumentTermRegistry` already owned by `LintContext`; do not construct another tokenizer inside a rule. Logical locations map to original LaTeX through `LintContext::span_of`, which delegates to `Document::source_span`.
 
 ```rust
-use crate::nlp::{JiebaAnalyzer, LexicalAnalyzer};
-
-let analyzer = JiebaAnalyzer::new();
-let analysis = analyzer.analyze(&sentence.text, &sentence.span);
-
-// Access tokens
-for token in analysis.tokens {
-    println!("Token: {}, POS: {:?}", token.text, token.pos);
+for paragraph in context.analysis().paragraphs() {
+    for sentence in &paragraph.sentences {
+        for token in &sentence.tokens {
+            let Some(source_span) = context.span_of(&token.location) else {
+                continue;
+            };
+            let _mapped_token = (&token.surface, &token.pos, source_span);
+        }
+    }
 }
 ```
+
+Candidate-aware analysis consumers use the same mapping path:
+
+```rust
+for candidate in context.registry().term_candidates() {
+    let Some(source_span) = context.span_of(candidate.location()) else {
+        // Logical analysis data can be valid even when no physical span maps.
+        continue;
+    };
+    let Some(source) = context.document().source(&source_span.file) else {
+        continue;
+    };
+    let source_slice = &source.text[source_span.start..source_span.end];
+
+    // Evidence is shared analysis input, not permission to emit a diagnostic.
+    let _candidate_view = (
+        candidate.surface(),
+        candidate.evidence(),
+        candidate.score().value(),
+        candidate.kind_hint(),
+        source_slice,
+    );
+}
+```
+
+`TermCandidate` is an internal evidence registry surface, not a lint rule or a diagnostic. `TERM002` still considers only configured `[[lexicon.entries]]` whose `requires_explanation` flag is `true`; a new consumer must define its own reviewed policy rather than treating candidate score as a warning threshold.
 
 ### Common Patterns
 
