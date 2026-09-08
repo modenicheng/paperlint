@@ -1,9 +1,7 @@
 use crate::{
     lint::{context::LintContext, diagnostic::Diagnostic},
     rule_id::RuleId,
-    text::{
-        Language, chars::effective_length, detect_language, lexicon::LexemeKind, segment_sentences,
-    },
+    text::{Language, chars::effective_length, lexicon::LexemeKind},
 };
 
 mod case001;
@@ -177,20 +175,17 @@ impl Rule for Style001 {
         if !rule.level.is_enabled() {
             return Vec::new();
         }
-        let document = context.document();
         let mut diagnostics = Vec::new();
-        let logical_base = crate::text::sentence::logical_base_span();
-        for block in &document.blocks {
-            for sentence in segment_sentences(&block.text, &logical_base) {
-                let language = detect_language(&sentence.text);
-                let (length, max, unit) = match language {
+        for paragraph in context.analysis().paragraphs() {
+            for sentence in &paragraph.sentences {
+                let (length, max, unit) = match sentence.language {
                     Language::English => (
                         sentence.text.split_whitespace().count(),
                         rule.max_english_words,
                         "words",
                     ),
                     Language::Chinese | Language::Mixed => (
-                        effective_length(&sentence.text, language),
+                        effective_length(&sentence.text, sentence.language),
                         rule.max_chars,
                         "effective characters",
                     ),
@@ -198,7 +193,7 @@ impl Rule for Style001 {
                 if length <= max {
                     continue;
                 }
-                if let Some(span) = document.source_span(block, sentence.range) {
+                if let Some(span) = context.span_of(&sentence.location) {
                     diagnostics.push(Diagnostic {
                         rule: self.id(),
                         severity: rule.level,

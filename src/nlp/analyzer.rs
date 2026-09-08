@@ -1,4 +1,4 @@
-use crate::latex::span::Span;
+use crate::latex::span::LocatedRange;
 
 /// Part-of-speech tag
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -30,9 +30,9 @@ pub enum PosTag {
 /// A token with position and POS tag
 #[derive(Debug, Clone)]
 pub struct Token {
-    pub text: String,
+    pub surface: String,
     pub pos: PosTag,
-    pub span: Span,
+    pub location: LocatedRange,
 }
 
 /// Result of lexical analysis on a sentence
@@ -40,11 +40,11 @@ pub struct Token {
 pub struct LexicalAnalysis {
     pub text: String,
     pub tokens: Vec<Token>,
-    pub span: Span,
+    pub location: LocatedRange,
 }
 
 /// Trait for lexical analyzers (tokenizer + POS tagger)
 pub trait LexicalAnalyzer {
     /// Analyze a sentence into tokens with POS tags
-    fn analyze(&self, text: &str, base_span: &Span) -> LexicalAnalysis;
+    fn analyze(&self, text: &str, location: LocatedRange) -> LexicalAnalysis;
 }
